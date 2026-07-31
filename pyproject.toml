@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "boolforge"
-version = "1.0.1"
+version = "1.0.2"
 description = "Methods to generate and analyze random Boolean functions and Boolean networks, with a focus on canalization."
 readme = "README.md"
 license = "MIT"
