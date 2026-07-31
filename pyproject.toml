@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "boolforge"
-version = "1.0.0"
+version = "1.0.2"
 description = "Methods to generate and analyze random Boolean functions and Boolean networks, with a focus on canalization."
 readme = "README.md"
 license = "MIT"
@@ -19,6 +19,7 @@ dependencies = [
     "numpy",
     "networkx",
     "pandas",
+    "scipy",
 ]
 
 classifiers = [
@@ -30,10 +31,10 @@ classifiers = [
 include = ["boolforge*"]
 
 [project.urls]
-Homepage = "https://ckadelka.github.io/BoolForge/"
-Documentation = "https://ckadelka.github.io/BoolForge/"
-Repository = "https://github.com/ckadelka/BoolForge"
-Issues = "https://github.com/ckadelka/BoolForge/issues"
+Homepage = "https://KadelkaLab.github.io/BoolForge/"
+Documentation = "https://KadelkaLab.github.io/BoolForge/"
+Repository = "https://github.com/KadelkaLab/BoolForge"
+Issues = "https://github.com/KadelkaLab/BoolForge/issues"
 
 [project.optional-dependencies]
 cana = ["cana"]
@@ -57,4 +58,3 @@ all = [
     "numba",
     "pyeda",
 ]
-

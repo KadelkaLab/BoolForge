@@ -6,6 +6,8 @@ Documentation
 
    boolean_function
    boolean_network
+   wiring_diagram
    generate
    bio_models
+   modularity
    utils

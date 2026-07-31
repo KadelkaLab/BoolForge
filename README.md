@@ -55,6 +55,7 @@ optional packages that can be installed via *extras*.
 
 Some internal routines are automatically accelerated if
 [numba](https://numba.pydata.org/) is available.
+Exact asynchronous attractor computation requires numba.
 
 To enable numba acceleration:
 
@@ -136,7 +137,7 @@ pip install boolforge[all]
 BoolForge supports import and export of Boolean network representations used by
 other software packages.
 
-In particular, BoolForge supports the **BNet format** commonly used by
+In particular, BoolForge supports the **.bnet format** commonly used by
 [pyboolnet](https://github.com/hklarner/pyboolnet), without requiring pyboolnet
 itself to be installed.
 
@@ -149,7 +150,7 @@ BoolForge also supports conversion to and from the format used by
 
 Full documentation, including tutorials and API reference, is available at:
 
-https://ckadelka.github.io/BoolForge/
+https://kadelkalab.github.io/BoolForge/
 
 ---
 
@@ -159,7 +160,7 @@ If you use BoolForge in your research, please cite the accompanying
 application note:
 
 Kadelka, C., & Coberly, B. (2025).  
-*BoolForge: A Python toolbox for Boolean functions and Boolean networks*.  
+*BoolForge: Controlled Generation and Analysis of Boolean Functions and Networks*.  
 arXiv:2509.02496.  
 https://arxiv.org/abs/2509.02496
 

@@ -37,14 +37,6 @@ Example
 import pickle
 import io
 
-try:
-    import requests
-except ImportError as e:
-    raise ImportError(
-        "The optional dependency 'requests' is required for bio_models. "
-        "Install it with `pip install requests`."
-    ) from e
-
 from .boolean_network import BooleanNetwork
 
 __all__ = [
@@ -74,6 +66,13 @@ def _get_content_in_remote_folder(
     None
     """
     import logging
+    try:
+        import requests
+    except ImportError:
+        raise ImportError(
+            "The optional dependency 'requests' is required for bio_models functionality. "
+            "Install it with `pip install requests`."
+        )
 
     folder = requests.get(url)
     folder.raise_for_status()
@@ -132,6 +131,13 @@ def fetch_file(download_url: str) -> str:
     str
         File content as plain text.
     """
+    try:
+        import requests
+    except ImportError:
+        raise ImportError(
+            "The optional dependency 'requests' is required for bio_models functionality. "
+            "Install it with `pip install requests`."
+        )
     r = requests.get(download_url)
     r.raise_for_status()
     return r.text
@@ -151,6 +157,13 @@ def fetch_file_bytes(download_url: str) -> bytes:
     bytes
         File content as raw bytes.
     """
+    try:
+        import requests
+    except ImportError:
+        raise ImportError(
+            "The optional dependency 'requests' is required for bio_models functionality. "
+            "Install it with `pip install requests`."
+        )
     r = requests.get(download_url)
     r.raise_for_status()
     return r.content

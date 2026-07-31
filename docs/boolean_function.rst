@@ -7,5 +7,6 @@ Boolean Function
 .. automodule:: boolforge.boolean_function
    :members:
    :special-members:
+   :inherited-members:
    :exclude-members: __init__
    :show-inheritance:

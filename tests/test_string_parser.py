@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from boolforge.utils import f_from_expression
+from boolforge.boolean_function import f_from_expression
 
 
 # ------------------------------------------------------------

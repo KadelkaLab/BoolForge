@@ -7,5 +7,6 @@ Boolean Network
 .. automodule:: boolforge.boolean_network
    :members:
    :special-members:
+   :inherited-members:
    :exclude-members: __init__
    :show-inheritance:

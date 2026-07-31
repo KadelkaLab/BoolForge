@@ -118,11 +118,9 @@ def test_random_degenerate_function_activities():
     rng = np.random.default_rng(5)
 
     n = 6
-    bias = 0.5
 
     bf = boolforge.generate.random_degenerate_function(
         n=n,
-        bias=bias,
         rng=rng,
     )
 

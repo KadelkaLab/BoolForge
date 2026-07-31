@@ -8,7 +8,8 @@
 # ## What you will learn
 # You will learn how to:
 #
-# - quantify robustness and fragility of Boolean networks under synchronous update,
+# - quantify robustness and fragility of Boolean networks under synchronous 
+#   and asynchronous update schemes,
 # - interpret basin-level and attractor-level robustness measures,
 # - perform exact and approximate robustness computations, and
 # - compute Derrida values as a measure of dynamical sensitivity.
@@ -52,8 +53,8 @@ print("Number of nodes:", bn.N)
 # in the Boolean hypercube and can be computed *exactly* for small networks.
 
 # %%
-results_exact = bn.get_attractors_and_robustness_synchronous_exact()
-for key in results_exact.keys():
+results_exact_sync = bn.get_attractors_and_robustness_synchronous_exact()
+for key in results_exact_sync.keys():
     print(key)
 
 # %% [markdown]
@@ -61,21 +62,21 @@ for key in results_exact.keys():
 # described in detail in the previous tutorial, is also returned by this method.
 
 # %%
-print("Number of attractors:", results_exact["NumberOfAttractors"])
-print("Attractors (decimal states):", results_exact["Attractors"])
-print("Eventual attractor of each state:", results_exact["AttractorID"])
+print("Number of attractors:", results_exact_sync["NumberOfAttractors"])
+print("Attractors (decimal states):", results_exact_sync["Attractors"])
+print("Eventual attractor of each state:", results_exact_sync["AttractorID"])
 
-print("Basin sizes:", results_exact["BasinSizes"])
+print("Basin sizes:", results_exact_sync["BasinSizes"])
 
 # %% [markdown]
-# ## Network-, basin- and attractor-level robustness
+# ## Network-, basin- and attractor-level robustness in synchronous networks
 #
 # Robustness can be resolved at different structural levels. Network-level metrics
 # report the average robustness of any network state when subjected to perturbation. 
 
 # %%
-print("Overall coherence:", results_exact["Coherence"])
-print("Overall fragility:", results_exact["Fragility"])
+print("Overall coherence:", results_exact_sync["Coherence"])
+print("Overall fragility:", results_exact_sync["Fragility"])
 
 # %% [markdown]
 # The same robustness metrics, coherence and fragility, can also be averaged
@@ -85,15 +86,15 @@ print("Overall fragility:", results_exact["Fragility"])
 
 # %%
 df_basins = pd.DataFrame({
-    "BasinSizes": results_exact["BasinSizes"],
-    "BasinCoherences": results_exact["BasinCoherences"],
-    "BasinFragilities": results_exact["BasinFragilities"],
-})
+    "BasinSizes": results_exact_sync["BasinSizes"],
+    "BasinCoherences": results_exact_sync["BasinCoherences"],
+    "BasinFragilities": results_exact_sync["BasinFragilities"],
+}, index = list(map(str,results_exact_sync["Attractors"])))
 
 df_attractors = pd.DataFrame({
-    "AttractorCoherences": results_exact["AttractorCoherences"],
-    "AttractorFragilities": results_exact["AttractorFragilities"],
-})
+    "AttractorCoherences": results_exact_sync["AttractorCoherences"],
+    "AttractorFragilities": results_exact_sync["AttractorFragilities"],
+}, index = list(map(str,results_exact_sync["Attractors"])))
 
 print("Basin-level robustness:")
 print(df_basins)
@@ -106,22 +107,50 @@ print(df_attractors)
 #
 # - *Coherence* measures the fraction of single-bit perturbations that do *not*
 #   change the final attractor [@willadsenwiles].
-# - *Fragility* measures how much the attractor state changes [@park2023models].
+# - *Fragility*, only computed for synchronously updated networks, measures how much the
+#    attractor state changes [@park2023models].
 #
 # The robustness metrics considered thus far describe how a single perturbation affects
 # the network dynamics in the long-term, i.e., at the attractor. 
 # These metrics are very meaningful biologically because attractors typically 
 # correspond to cell types of phenotypes.
 #
-# It turns out that attractors in biological networks are often less stable 
-# than their basins, a phenomenon explored in detail in Tutorial 10.
-#
-#
-# ## Approximate robustness for larger networks
+# It turns out that attractors in synchronously updated biological networks are 
+# often less stable than their basins, a phenomenon explored in detail in Tutorial 10.
+
+# %% [markdown]
+# ## Network-, basin- and attractor-level robustness in asynchronous networks
+# Coherence can also be defined for asynchronously updated networks, but fragility cannot, 
+# because the notion of a single attractor state is not well-defined in the asynchronous case.
+# `BoolForge` therefore only computes coherence for asynchronous networks.
+# Similar to the synchronous case, `get_terminal_sccs_and_robustness_asynchronous_exact` returns
+# attractor (terminal strongly connected component) information  and 
+# information on robustness measures at the network, basin, and attractor levels.
+
+# %%
+results_exact_async = bn.get_terminal_sccs_and_robustness_asynchronous_exact()
+print("Terminal strongly connected components (asynchronous attractors):", 
+      results_exact_async["TerminalSCCs"])
+print('Number of terminal strongly connected components:', 
+      results_exact_async["NumberOfTerminalSCCs"])
+print('Length of terminal strongly connected components:', 
+      results_exact_async["LengthOfTerminalSCCs"])
+print('Basin sizes (asynchronous):', 
+      results_exact_async["BasinSizes"])
+
+print("Overall coherence (asynchronous):", 
+      results_exact_async["Coherence"])
+print("Basin-level coherence (asynchronous):", 
+      results_exact_async["BasinCoherences"])
+print("Attractor-level coherence (asynchronous):", 
+      results_exact_async["TerminalSCCCoherencesStationary"])
+
+# %% [markdown]
+# ## Approximate robustness for larger synchronous networks
 #
 # For larger networks, exact enumeration of all $2^N$ states is infeasible.
-# BoolForge therefore provides a Monte Carlo approximation that samples
-# random initial conditions and perturbations.
+# BoolForge therefore provides a Monte Carlo approximation for synchronously updated networks
+# that samples random initial conditions and perturbations. 
 
 # %%
 results_approx = bn.get_attractors_and_robustness_synchronous(n_simulations=500)
@@ -132,7 +161,11 @@ print("Approximate fragility:", results_approx["FragilityApproximation"])
 
 # %% [markdown]
 # Even when only using 500 random initial states, the approximate values closely match the exact ones.
-# For larger networks, these approximations are often the only feasible option.
+# For networks with 20 to 30 nodes, simulation becomes the only feasible option due
+# to the exponential growth of state space.
+#
+# Note that the approximate method is not yet implemented for asynchronously updated networks, 
+# but this is planned for a future release, as the theory is being extended to the asynchronous case.
 
 # %% [markdown]
 # ## Derrida value: dynamical sensitivity

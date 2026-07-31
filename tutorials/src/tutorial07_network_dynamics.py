@@ -225,67 +225,70 @@ plt.show()
 
 
 # %% [markdown]
-# ### Steady states under general asynchronous update
+# ### Attractors under general asynchronous update
 #
-# BoolForge can compute steady states under *general asynchronous updating*,
+# BoolForge can compute attractors under *general asynchronous updating*,
 # where at each step only a single node updates according to its Boolean rule.
+# Under synchronous updating, the dynamics are deterministic, 
+# while under asynchronous updating, the dynamics are generally stochastic.
+# That implies that the notion of attractors needs to be adapted. 
+# In particular, synchronous limit cycles typically disappear under asynchronous updating, 
+# while steady states remain unchanged. Instead, under asynchronous updating, 
+# the long-term behavior is characterized by the *terminal strongly connected components* 
+# (SCCs) of the asynchronous state transition graph.
 
 # %%
-dict_dynamics = bn.get_steady_states_asynchronous_exact()
-print('Discovered steady states:',dict_dynamics['SteadyStates'])
-print('Number of steady states (lower bound):',dict_dynamics['NumberOfSteadyStates'])
+terminal_sccs = bn.get_terminal_sccs_asynchronous_exact()
+print('Terminal strongly connected components:', terminal_sccs)
 
 # %% [markdown]
 # The result reveals the same two steady states as in the synchronous case.
 # However, the limit cycle observed under synchronous updating disappears
 # under asynchronous dynamics.
 #
-# In addition, BoolForge returns the *full asynchronous state transition graph*.
-
+# In addition, BoolForge can return the *full asynchronous state transition graph*.
 
 # %%
-for state, successors in dict_dynamics["STGAsynchronous"].items():
-    print(state,'-->',successors)
+STG_async = bn.get_asynchronous_transition_matrix()
+print(STG_async)
 
 # %% [markdown]
-# The state transition graph describes for each state the possible next states 
-# that the system may transition to, in addition to the transition probabilities. 
-# This graph can be interpreted as a *sparse transition matrix*
-# of a Markov chain. Each directed edge corresponds to a possible single-node update.
+# The state transition graph, a *sparse transition matrix* of a Markov chain,
+# describes all possible state transitions, together with their probabilities. 
 #
-# By repeatedly composing this transition matrix with itself (equivalently,
-# raising it to higher powers), BoolForge computes the *absorption probabilities*,
-# i.e., the probability that a trajectory starting from any state eventually
-# reaches each steady state.
+# From this matrix, BoolForge can compute the *absorption probabilities*,
+# i.e., the probability that a trajectory starting from a given state eventually
+# reaches a specific terminal SCC.
 
 # %%
-print(dict_dynamics['FinalTransitionProbabilities'])
-
+print(np.round(bn.get_absorption_probabilities_exact(),4))
 
 # %% [markdown]
-# The size of each basin of attraction is the (column-wise) average of these probabilities.
+# This shows that the state 001 (1 in decimal representation) reaches both steady states
+# with equal probability. On the other hand, the states 011 (decimal = 3) and 110 (decimal = 6)
+# always eventually settle in the steady state 111, the second attractor in `terminal_sccs`.
+#
+# From the absorption probabilities, the size of each basin of attraction can also be readily
+# computed as the column-wise sum of these probabilities.
+# This metric, together with many other dynamical properties, is returned by the method 
+# `get_terminal_sccs_and_robustness_asynchronous_exact`, which we investigate in more detail 
+# in the next tutorial.
 
 # %%
-assert np.all(dict_dynamics['BasinSizes'] == 
-              np.mean(dict_dynamics['FinalTransitionProbabilities'],0))
+dict_dynamics = bn.get_terminal_sccs_and_robustness_asynchronous_exact()
 print('Basin sizes:',dict_dynamics['BasinSizes'])
-
-# %% [markdown]
-# Note that `BoolForge` currently does not detect complex cyclic attractors under
-# asynchronous update; for this task, specialized tools such as
-# [pystablemotifs](https://github.com/jcrozum/pystablemotifs) are recommended [@rozum2022pystablemotifs]. 
-#
-# In fact, some of BoolForge's asynchronous update methods fail when the network
-# contains no steady state. 
 
 
 # %% [markdown]
 # ### Monte Carlo approximation
 #
 # As in the synchronous case, `BoolForge` also contains a Monte Carlo routine
-# for sampling asynchronous dynamics.
+# for sampling asynchronous dynamics. However, this routine is currently limited to identifying steady
+# states and approximating their basin sizes. It does not identify terminal SCCs.
+# For this task, specialized tools such as [pystablemotifs](https://github.com/jcrozum/pystablemotifs)
+# are recommended [@rozum2022pystablemotifs]. 
 #
-# The simulation provides:
+# BoolForge's simulation framework provides:
 #
 # - a lower bound on the number of steady states,
 # - approximate basin size distributions,
@@ -320,7 +323,8 @@ print('Basin size approximation:',dict_dynamics['BasinSizesApproximation'])
 dict_dynamics = bn.get_attractors_synchronous(n_simulations=1,
                                               initial_sample_points=[[0,0,1]],
                                               initial_sample_points_are_vectors=True)
-dict_dynamics
+for key, value in dict_dynamics.items():
+    print(f"{key}: {value}")
 
 # %% [markdown]
 # ## Summary
@@ -330,7 +334,9 @@ dict_dynamics
 # - simulate Boolean network dynamics,
 # - compute synchronous attractors exactly and approximately,
 # - analyze basin sizes,
-# - compute steady states under asynchronous updating.
+# - compute asynchronous attractors (terminal SCCs) and absorption probabilities exactly,
+# - identify, by simulation, some (but possible not all) steady states for large asynchronously 
+#   updated Boolean networks.
 #
 # This concludes the function- and network-level analysis.
 # Subsequent tutorials focus on analyzing stability to perturbations, control analysis, 

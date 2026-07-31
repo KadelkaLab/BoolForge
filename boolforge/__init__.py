@@ -25,6 +25,7 @@ from .utils import (
     dec2bin,
     get_left_side_of_truth_table,
     hamming_weight_to_ncf_layer_structure,
+    get_shannon_entropy,
 )
 
 from .modularity import (
@@ -46,6 +47,7 @@ __all__ = [
     "dec2bin",
     "get_left_side_of_truth_table",
     "hamming_weight_to_ncf_layer_structure",
+    "get_shannon_entropy",
     "BooleanFunction",
     "display_truth_table",
     "get_layer_structure_from_canalized_outputs",
