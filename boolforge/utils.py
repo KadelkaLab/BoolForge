@@ -191,7 +191,7 @@ def bin2dec(binary_vector: list[int]) -> int:
     """
     decimal = 0
     for bit in binary_vector:
-        decimal = (decimal << 1) | bit
+        decimal = (decimal << 1) | bool(bit)
     return int(decimal)
 
 
