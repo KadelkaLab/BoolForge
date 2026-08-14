@@ -356,6 +356,7 @@ class BooleanNetworkRobustnessSyncMixin:
         self,
         n_simulations: int = 500,
         return_attractor_coherence: bool = True,
+        return_attractorID: bool = False,
         *,
         rng=None,
     ) -> dict:
@@ -384,6 +385,9 @@ class BooleanNetworkRobustnessSyncMixin:
         return_attractor_coherence : bool, optional
             If True (default), also compute attractor-level coherence and fragility
             by perturbing attractor states found during sampling.
+        return_attractorID: bool, optional
+            If True (default False), also return the mapping of sampled states to 
+            attractors as a dictionary.
         rng : None or numpy.random.Generator, optional
             Random number generator or seed-like object. Passed to
             ``utils._coerce_rng``.
@@ -421,6 +425,8 @@ class BooleanNetworkRobustnessSyncMixin:
             - BasinFragilitiesApproximation : np.ndarray[float]
                 Approximate fragility per basin (same definition as fragility but
                 conditioned on having reached that basin).
+            - AttractorID: dict, optional
+                Mapping from visited states (decimal) to attractor index.
             - AttractorCoherences : np.ndarray[float], optional
                 If ``return_attractor_coherence`` is True: attractor-level
                 coherence (probability that a single-bit perturbation of an attractor
@@ -723,6 +729,9 @@ class BooleanNetworkRobustnessSyncMixin:
                 results,
             )
         )
+
+        if return_attractorID:
+            return_dict['AttractorID'] = attractor_dict
     
         if not return_attractor_coherence:
             return return_dict
