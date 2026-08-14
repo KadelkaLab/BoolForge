@@ -337,7 +337,7 @@ class BooleanNetworkDynamicsSyncMixin:
                     attractors.append(attractor_states)
                     basin_sizes.append(1)
                     idx_attr = len(attractors) - 1
-                    for s in attractor_states:
+                    for s in trajectory: #this used to be attractor_states in version<=1.0.2, which is wrong
                         attr_dict[s] = idx_attr
                     break
     

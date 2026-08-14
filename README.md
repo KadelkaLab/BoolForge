@@ -159,10 +159,10 @@ https://kadelkalab.github.io/BoolForge/
 If you use BoolForge in your research, please cite the accompanying
 application note:
 
-Kadelka, C., & Coberly, B. (2025).  
+Kadelka, C., & Coberly, B. (2026).  
 *BoolForge: Controlled Generation and Analysis of Boolean Functions and Networks*.  
-arXiv:2509.02496.  
-https://arxiv.org/abs/2509.02496
+Bioinformatics 42 (8), btag576.  
+https://academic.oup.com/bioinformatics/article/42/8/btag576/8748496
 
 A machine-readable citation file (`CITATION.cff`) is included in the repository
 and can be used directly by GitHub, Zenodo, and reference managers.

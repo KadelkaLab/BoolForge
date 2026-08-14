@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 
 authors = [
     { name = "Claus Kadelka", email = "ckadelka@iastate.edu" },
-    { name = "Benjamin Coberly" }
+    { name = "Benjamin Coberly", email = "benco@iastate.edu" }
 ]
 
 dependencies = [

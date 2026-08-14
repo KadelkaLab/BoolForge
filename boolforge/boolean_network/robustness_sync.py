@@ -556,7 +556,7 @@ class BooleanNetworkRobustnessSyncMixin:
                                 idx_attr = len(attractors)
     
                                 attractors.append(queue[idx:])
-                                basin_sizes.append(1)
+                                basin_sizes.append(0)
                                 ICs_per_attractor_state.append(
                                     [0] * len(attractors[-1])
                                 )
