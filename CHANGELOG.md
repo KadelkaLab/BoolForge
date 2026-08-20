@@ -3,7 +3,7 @@
 ## [1.0.3] - 2026-xx-xx
 
 ### Added
-- `get_attractors_and_robustness_synchronous` has a no optional argument `return_attractorID`. If True (default False), the mapping of sampled states to attractors is returned. This is useful for pairwise comparisons between base and controlled networks, plus it is something `get_attractors_synchronous` was already doing anyways. 
+- `get_attractors_and_robustness_synchronous` has now an optional argument `return_attractorID`. If True (default False), the mapping of sampled states to attractors is returned. This is useful for pairwise comparisons between base and controlled networks, plus it is something `get_attractors_synchronous` was already doing anyways. 
 
 ### Fixed
 - Fixed `AttractorID` bookkeeping in Monte Carlo synchronous attractor detection in `.get_attractors_synchronous()`. Transient states encountered while discovering a new attractor are now correctly assigned to that attractor.

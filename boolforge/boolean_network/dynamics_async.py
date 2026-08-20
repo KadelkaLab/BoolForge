@@ -17,11 +17,155 @@ from .. import utils
 
 from ..backend._numba import _numba_required, __LOADED_NUMBA__
 if __LOADED_NUMBA__:
-    from ..backend.dynamics_async import _build_async_transition_coo
+    from ..backend.dynamics_async import _build_async_transition_coo, _build_sdds_transition_csr, _build_sdds_transition_csr_with_endpoint_probabilities
 
 
 
 class BooleanNetworkDynamicsAsyncMixin:
+    def _get_stochastic_context(
+        self,
+        update_scheme: str = "asynchronous",
+        *,
+        p_degradation: Sequence[float] | None = None,
+        p_activation: Sequence[float] | None = None,
+    ):
+        update_scheme = update_scheme.lower()
+
+        if update_scheme == "asynchronous":
+            return "asynchronous"
+
+        elif update_scheme == "sdds":
+            return (
+                f"sdds_"
+                f"degradation={tuple(p_degradation.tolist())}_"
+                f"activation={tuple(p_activation.tolist())}"
+            )
+
+        else:
+            raise ValueError(
+                f"Unknown stochastic update scheme: {update_scheme!r}."
+            )
+
+    def _validate_stochastic_update_scheme(
+        self,
+        update_scheme: str = "asynchronous",
+        *,
+        p_degradation: Sequence[float] | None = None,
+        p_activation: Sequence[float] | None = None,
+    ) -> tuple[str, np.ndarray | None, np.ndarray | None]:
+        update_scheme = update_scheme.lower()
+
+        if update_scheme not in {"asynchronous", "sdds"}:
+            raise ValueError(
+                f"Unknown stochastic update scheme: {update_scheme!r}. "
+                "Expected 'asynchronous' or 'sdds'."
+            )
+
+        if update_scheme == "asynchronous":
+            if p_degradation is not None or p_activation is not None:
+                raise ValueError(
+                    "p_degradation and p_activation are only valid "
+                    "for the SDDS update scheme."
+                )
+
+            return update_scheme, None, None
+        elif update_scheme == "sdds":
+            if p_degradation is None or p_activation is None:
+                raise ValueError(
+                    "p_degradation and p_activation must be provided "
+                    "for the SDDS update scheme."
+                )
+
+            p_degradation = np.asarray(p_degradation, dtype=np.float64)
+            p_activation = np.asarray(p_activation, dtype=np.float64)
+
+            if p_degradation.shape != (self.N,):
+                raise ValueError(
+                    f"p_degradation must have shape ({self.N},), "
+                    f"got {p_degradation.shape}."
+                )
+
+            if p_activation.shape != (self.N,):
+                raise ValueError(
+                    f"p_activation must have shape ({self.N},), "
+                    f"got {p_activation.shape}."
+                )
+
+            if np.any((p_degradation < 0.0) | (p_degradation > 1.0)):
+                raise ValueError(
+                    "p_degradation must contain values in [0, 1]."
+                )
+
+            if np.any((p_activation < 0.0) | (p_activation > 1.0)):
+                raise ValueError(
+                    "p_activation must contain values in [0, 1]."
+                )
+
+            return update_scheme, p_degradation, p_activation
+        else:
+            raise ValueError(
+                f"Unknown stochastic update scheme: {update_scheme!r}."
+            )
+
+    def get_stochastic_transition_matrix(
+        self,
+        update_scheme: str = "asynchronous",
+        *,
+        p_degradation: Sequence[float] | None = None,
+        p_activation: Sequence[float] | None = None
+    ) -> csr_matrix:
+        """
+        Construct and return the exact stochastic state transition graph.
+
+        The stochastic state transition graph (STG) is represented as a
+        row-stochastic sparse matrix whose rows correspond to network states
+        and whose nonzero entries encode one-step stochastic transitions.
+
+        The matrix is cached after the first computation.
+
+        Parameters
+        ----------  
+            update_scheme : {"asynchronous", "sdds"}, optional
+                Stochastic update scheme. Default is "asynchronous".
+            p_degradation : Sequence[float] or None, optional
+                Node-specific degradation probabilities. Required for SDDS.
+            p_activation : Sequence[float] or None, optional
+                Node-specific activation probabilities. Required for SDDS.
+        
+        Returns
+        -------
+        scipy.sparse.csr_matrix
+            Sparse transition matrix of shape ``(2**N, 2**N)``.
+
+        Notes
+        -----
+        The transition matrix depends on both the Boolean network and, 
+        for SDDS, the supplied activation/degradation probabilities, so the
+        transition matrix is cached separately for each propensity parameterization.
+        """
+        (
+            update_scheme,
+            p_degradation,
+            p_activation,
+        ) = self._validate_stochastic_update_scheme(
+            update_scheme=update_scheme,
+            p_degradation=p_degradation,
+            p_activation=p_activation,
+        )
+
+        if update_scheme == "asynchronous":
+            return self.get_asynchronous_transition_matrix()
+        elif update_scheme == "sdds":
+            return self.get_sdds_transition_matrix(
+                p_degradation=p_degradation,
+                p_activation=p_activation,
+            )
+        else: # should be impossible because of validation beforehand
+            raise RuntimeError(
+                f"Unhandled stochastic update scheme: {update_scheme!r}."
+            )
+
+
     def get_asynchronous_transition_matrix(self) -> csr_matrix:
         """
         Construct and return the exact asynchronous state transition graph.
@@ -53,35 +197,128 @@ class BooleanNetworkDynamicsAsyncMixin:
             dtype=np.float32
         )
 
-        self._set_property('STG', STG, context='asynchronous', exact=True)
+        self._set_property('STG', STG, 
+                           context='asynchronous', exact=True)
         
         return STG
-                
-    
-    def get_terminal_sccs_asynchronous_exact(self) -> list[list[int]]:
+
+
+    def get_sdds_transition_matrix(
+        self,
+        p_degradation : Sequence[float],
+        p_activation : Sequence[float],
+    ) -> csr_matrix:
         """
-        Compute the terminal strongly connected components of the asynchronous STG.
-        
+        Construct and return the exact SDDS state transition graph.
+
+        The SDDS state transition graph (STG) is represented as a
+        row-stochastic sparse matrix whose rows correspond to network states
+        and whose nonzero entries encode one-step SDDS transition
+        probabilities.
+
+        Parameters
+        ----------
+        p_degradation : Sequence[float]
+            Node-specific probabilities of degradation (1 -> 0), of length N.
+
+        p_activation : Sequence[float]
+            Node-specific probabilities of activation (0 -> 1), of length N.
+
+        Returns
+        -------
+        scipy.sparse.csr_matrix
+            Sparse transition matrix of shape ``(2**N, 2**N)``.
+
+        Notes
+        -----
+        The transition matrix depends on both the Boolean network and the
+        supplied activation/degradation probabilities, so the SDDS transition
+        matrix is cached separately for each propensity parameterization.
+
+        References
+        ----------
+        [1] Murrugarra, D., Veliz-Cuba, A., Aguilar, B., Laubenbacher, R. (2012).
+            Modeling stochasticity and variability in gene regulatory networks.
+            EURASIP Journal on Bioinformatics and Systems Biology, 2012(1), 8.
+        """
+        (
+            update_scheme,
+            p_degradation,
+            p_activation,
+        ) = self._validate_stochastic_update_scheme(
+            update_scheme='sdds',
+            p_degradation=p_degradation,
+            p_activation=p_activation,
+        )
+
+        context = self._get_stochastic_context(
+            update_scheme='sdds',
+            p_degradation=p_degradation,
+            p_activation=p_activation,
+        )
+
+        STG, status = self._get_property("STG", context=context)
+        if status == "exact":
+            return STG
+
+        if not __LOADED_NUMBA__:
+            _numba_required("SDDS exact dynamics computation")
+
+        # The synchronous STG provides F(x) for every state x. The SDDS
+        # transition kernel then converts each deterministic transition
+        # x -> F(x) into its probabilistic SDDS successors.
+        if self.STG is None:
+            self.compute_synchronous_state_transition_graph()
+
+        has_endpoint_probabilities = (
+            np.any(p_activation == 0.0)
+            or np.any(p_activation == 1.0)
+            or np.any(p_degradation == 0.0)
+            or np.any(p_degradation == 1.0)
+        )
+
+        if has_endpoint_probabilities:
+            _build_sdds_transition_csr_method = _build_sdds_transition_csr_with_endpoint_probabilities
+        else:
+            _build_sdds_transition_csr_method = _build_sdds_transition_csr
+
+        indptr, indices, data = _build_sdds_transition_csr_method(
+            STG_synchronous_exact,
+            p_degradation=p_degradation,
+            p_activation=p_activation,
+            N=self.N,
+            )
+
+        STG = csr_matrix(
+            (data, indices, indptr),
+            shape=(1 << self.N, 1 << self.N),
+            dtype=np.float64,
+        )
+
+        self._set_property("STG", STG, 
+                           context=context, exact=True)
+
+        return STG
+
+    def _get_terminal_sccs_from_stg(self, STG):
+        """
+        Compute the terminal strongly connected components of a given STG.
+
         A terminal SCC is a strongly connected component with no outgoing
         transitions to states outside the component. Terminal SCCs correspond
-        to asynchronous attractors, including both steady states and cyclic
-        attractors.
-        
-        Results are cached after the first computation.
-        
+        to attractors, including both steady states and cyclic attractors.
+
+        Parameters
+        ----------
+        STG : scipy.sparse.csr_matrix
+            Sparse transition matrix of shape ``(2**N, 2**N)``.
+
         Returns
         -------
         list of list of int
             Terminal SCCs represented as lists of decimal-encoded states.
         """
-        if ('terminal_sccs', 'asynchronous') in self._properties_exact:
-            return self._properties_exact[('terminal_sccs', 'asynchronous')]
-        
-        STG = self.get_asynchronous_transition_matrix()        
-        n_components, labels = connected_components(STG, 
-                                                    directed=True, 
-                                                    connection='strong'
-                                                    )
+        n_components, labels = connected_components(STG, directed=True, connection='strong')
         terminal_sccs = []
         for c in range(n_components):
             states = np.where(labels == c)[0]
@@ -92,65 +329,239 @@ class BooleanNetworkDynamicsAsyncMixin:
             else:
                 terminal_sccs.append([int(s) for s in states])
         
-        self._set_property('terminal_sccs', terminal_sccs,
-                           context='asynchronous', exact=True)
-        self._set_property('number_of_terminal_sccs', len(terminal_sccs),
-                           context='asynchronous', exact=True)
+        return terminal_sccs
+
+    def get_terminal_sccs_stochastic_exact(
+        self,
+        update_scheme: str = "asynchronous",
+        *,
+        p_degradation: Sequence[float] | None = None,
+        p_activation: Sequence[float] | None = None,
+    ) -> list[list[int]]:
+        """
+        Compute the terminal SCCs of a stochastic Boolean-network STG.
+
+        A terminal SCC is a strongly connected component with no outgoing
+        transitions to states outside the component. Terminal SCCs correspond
+        to attractors under stochastic update, including both steady states and cyclic
+        attractors.
+
+        Results are cached after the first computation.
+
+        Parameters
+        ----------
+        update_scheme : {"asynchronous", "sdds"}, optional
+            Stochastic update scheme. Default is "asynchronous".
+        p_degradation : Sequence[float] or None, optional
+            Node-specific degradation probabilities. Required for SDDS. 
+        p_activation : Sequence[float] or None, optional
+            Node-specific activation probabilities. Required for SDDS.
+
+        Returns
+        -------
+        list of list of int
+            Terminal SCCs represented as lists of decimal-encoded states.
+        """
+
+        (
+            update_scheme,
+            p_degradation,
+            p_activation,
+        ) = self._validate_stochastic_update_scheme(
+            update_scheme=update_scheme,
+            p_degradation=p_degradation,
+            p_activation=p_activation,
+        )
+
+        context = self._get_stochastic_context(
+            update_scheme,
+            p_degradation=p_degradation,
+            p_activation=p_activation,
+        )
+
+        terminal_sccs, status = self._get_property(
+            "terminal_sccs",
+            context=context,
+        )
+
+        if status == "exact":
+            return terminal_sccs
+
+        if update_scheme == "asynchronous":
+            STG = self.get_asynchronous_transition_matrix()
+        elif update_scheme == "sdds":
+            STG = self.get_sdds_transition_matrix(
+                p_degradation=p_degradation,
+                p_activation=p_activation,
+            )
+
+        terminal_sccs = self._get_terminal_sccs_from_stg(STG)
+
+        self._set_property(
+            "terminal_sccs", terminal_sccs,
+            context=context, exact=True,
+        )
+        self._set_property(
+            "number_of_terminal_sccs", len(terminal_sccs),
+            context=context, exact=True,
+        )
+
         return terminal_sccs
     
-    def get_minimal_trap_spaces_asynchronous_exact(self) -> np.ndarray:
+    def get_terminal_sccs_asynchronous_exact(self) -> list[list[int]]:
         """
-        Compute the minimal trap space associated with each terminal SCC.
-        
+        Compute the terminal SCCs under general asynchronous updating.
+
+        Notes
+        -----
+        This method is retained for backward compatibility. For new code, use
+        ``get_terminal_sccs_stochastic_exact(update_scheme="asynchronous")``
+        instead.
+        """
+        return self.get_terminal_sccs_stochastic_exact(
+                update_scheme="asynchronous"
+            )
+
+    def get_minimal_trap_spaces_stochastic_exact(
+        self,
+        update_scheme: str = "asynchronous",
+        *,
+        p_degradation: Sequence[float] | None = None,
+        p_activation: Sequence[float] | None = None,
+    ) -> np.ndarray:
+        """
+        Compute the minimal trap space associated with each terminal SCC
+        under a stochastic update scheme.
+
         For each terminal SCC, nodes that take the same value in every state
         are marked by their fixed value (0 or 1), whereas nodes that vary
         across the SCC are marked as -1.
-        
+
+        Parameters
+        ----------
+        update_scheme : {"asynchronous", "sdds"}, optional
+            Stochastic update scheme. Default is "asynchronous".
+        p_degradation : Sequence[float] or None, optional
+            Node-specific degradation probabilities. Required for SDDS.
+        p_activation : Sequence[float] or None, optional
+            Node-specific activation probabilities. Required for SDDS.
+
         Returns
         -------
         numpy.ndarray
             Array of shape ``(n_terminal_sccs, N)`` whose rows represent
             minimal trap spaces.
         """
-        terminal_sccs = self.get_terminal_sccs_asynchronous_exact()
+        terminal_sccs = self.get_terminal_sccs_stochastic_exact(
+            update_scheme=update_scheme,
+            p_degradation=p_degradation,
+            p_activation=p_activation,
+        )
+
         return np.array(
-            [utils.get_minimal_trap_space(states, self.N) 
-             for states in terminal_sccs]
+            [
+                utils.get_minimal_trap_space(states, self.N)
+                for states in terminal_sccs
+            ]
         )
     
-    def get_number_frozen_nodes_asynchronous_exact(self) -> int:
+    def get_minimal_trap_spaces_asynchronous_exact(self) -> np.ndarray:
         """
-        Compute the number of frozen nodes in the asynchronous dynamics.
-    
+        Compute the minimal trap space associated with each terminal SCC
+        under general asynchronous updating.
+
+        Notes
+        -----
+        This method is retained for backward compatibility. For new code, use
+        ``get_minimal_trap_spaces_stochastic_exact(update_scheme="asynchronous")``
+        instead.
+        """
+        return self.get_minimal_trap_spaces_stochastic_exact(
+            update_scheme="asynchronous"
+        )
+
+    def get_number_frozen_nodes_stochastic_exact(self,
+        update_scheme: str = "asynchronous",
+        *,
+        p_degradation: Sequence[float] | None = None,
+        p_activation: Sequence[float] | None = None,
+    ) -> int:
+        """
+        Compute the number of frozen nodes in the stochastic dynamics.
+
         A node is considered frozen if it takes the same value in every
-        attractor state. For asynchronous dynamics, attractor states are
+        attractor state. For stochastic dynamics, attractor states are
         defined as the states belonging to terminal strongly connected
-        components (terminal SCCs) of the asynchronous state transition
+        components (terminal SCCs) of the stochastic state transition
         graph.
-    
+
+        Parameters
+        ----------
+        update_scheme : {"asynchronous", "sdds"}, optional
+            Stochastic update scheme. Default is "asynchronous".
+        p_degradation : Sequence[float] or None, optional
+            Node-specific degradation probabilities. Required for SDDS. 
+        p_activation : Sequence[float] or None, optional
+            Node-specific activation probabilities. Required for SDDS.
+
+
         Returns
         -------
         int
             Number of nodes whose value is identical across all attractor
             states.
         """
-        terminal_sccs = self.get_terminal_sccs_asynchronous_exact()
+        terminal_sccs = self.get_terminal_sccs_stochastic_exact(
+            update_scheme=update_scheme,
+            p_degradation=p_degradation,
+            p_activation=p_activation,
+        )
         return self.N - utils.get_number_of_varying_nodes(
             utils.flatten(terminal_sccs)
         )
+
+    
+    def get_number_frozen_nodes_asynchronous_exact(self) -> int:
+        """
+        Compute the number of frozen nodes in the asynchronous dynamics.
+    
+        Notes:
+        -----
+        This method is retained for backward compatibility. For new code, use
+        ``get_number_frozen_nodes_stochastic_exact(update_scheme="asynchronous")``
+        instead.
+        """
+        return self.get_number_frozen_nodes_stochastic_exact(
+            update_scheme="asynchronous"
+        )
         
 
-    def get_absorption_probabilities_exact(self) -> np.ndarray:
+    def get_absorption_probabilities_stochastic_exact(
+            self,
+            update_scheme: str = "asynchronous",
+            *,
+            p_degradation: Sequence[float] | None = None,
+            p_activation: Sequence[float] | None = None,
+        ) -> np.ndarray:
         """
-        Compute exact absorption probabilities for the asynchronous dynamics.
-        
+        Compute exact absorption probabilities under a stochastic update scheme.
+
         For every network state and every terminal SCC, this method computes
-        the probability that an asynchronous trajectory starting from that
+        the probability that a stochastic trajectory starting from that
         state is eventually absorbed into the corresponding terminal SCC.
         
         Probabilities are obtained by solving the standard absorbing Markov
         chain equations and are cached after the first computation.
         
+        Parameters
+        ----------
+        update_scheme : {"asynchronous", "sdds"}, optional
+            Stochastic update scheme. Default is "asynchronous".
+        p_degradation : Sequence[float] or None, optional
+            Node-specific degradation probabilities. Required for SDDS. 
+        p_activation : Sequence[float] or None, optional
+            Node-specific activation probabilities. Required for SDDS.
+
         Returns
         -------
         numpy.ndarray
@@ -158,11 +569,41 @@ class BooleanNetworkDynamicsAsyncMixin:
             ``[x, a]`` is the probability that state ``x`` eventually
             reaches terminal SCC ``a``.
         """
-        if ('absorption_probabilities', 'asynchronous') in self._properties_exact:
-            return self._properties_exact[('absorption_probabilities', 'asynchronous')]
-        
-        STG = self.get_asynchronous_transition_matrix()
-        terminal_sccs = self.get_terminal_sccs_asynchronous_exact()
+
+        (
+            update_scheme,
+            p_degradation,
+            p_activation,
+        ) = self._validate_stochastic_update_scheme(
+            update_scheme=update_scheme,
+            p_degradation=p_degradation,
+            p_activation=p_activation,
+        )
+
+        context = self._get_stochastic_context(
+            update_scheme,
+            p_degradation=p_degradation,
+            p_activation=p_activation,
+        )
+
+        absorption_probabilities, status = self._get_property(
+            "absorption_probabilities",
+            context=context,
+        )
+
+        if status == "exact":
+            return absorption_probabilities
+
+        STG = self.get_stochastic_transition_matrix(
+            update_scheme=update_scheme,
+            p_degradation=p_degradation,
+            p_activation=p_activation
+        )
+        terminal_sccs = self.get_terminal_sccs_stochastic_exact(
+            update_scheme=update_scheme,
+            p_degradation=p_degradation,
+            p_activation=p_activation
+        )
         
         transient_states = np.setdiff1d(np.arange(1 << self.N),
                                         np.concatenate(terminal_sccs))
@@ -227,10 +668,25 @@ class BooleanNetworkDynamicsAsyncMixin:
             absorption_probs[states, a] = 1.0   
             
         self._set_property('absorption_probabilities', absorption_probs,
-                           context='asynchronous', exact=True)
+                           context=context, exact=True)
         
         return absorption_probs
-    
+
+
+    def get_absorption_probabilities_exact(self) -> np.ndarray:
+        """
+        Compute exact absorption probabilities for the asynchronous dynamics.
+        
+        Notes:
+        -----
+        This method is retained for backward compatibility. For new code, use
+        `get_absorption_probabilities_stochastic_exact(update_scheme='asynchronous')` 
+        instead.
+        """
+        return self.get_absorption_probabilities_stochastic_exact(
+            update_scheme='asynchronous'
+        )
+
     
     def get_steady_states_asynchronous(
         self,
