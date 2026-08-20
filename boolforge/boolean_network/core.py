@@ -410,18 +410,24 @@ class BooleanNetwork(
             if self.N <= 15:
                 additional_info = self.get_attractors_and_robustness_synchronous_exact()
                 summary["Number of attractors"] = additional_info["NumberOfAttractors"]
+                basin_sizes = additional_info['BasinSizes']
+                coherence = additional_info['Coherence']
+                fragility = additional_info['Fragility']
                 derrida = self.get_derrida_value(exact=True)
             else:
                 additional_info = self.get_attractors_and_robustness_synchronous()
-                summary["Minimal number of attractors"] = additional_info["NumberOfAttractors"]
+                summary["Minimal number of attractors"] = additional_info["NumberOfAttractorsLowerBound"]
+                basin_sizes = additional_info['BasinSizesApproximation']
+                coherence = additional_info['CoherenceApproximation']
+                fragility = additional_info['FragilityApproximation']
                 derrida = self.get_derrida_value()
             
-            summary['Largest basin size'] = max(additional_info['BasinSizes'])
-            entropy = get_entropy_of_basin_size_distribution(additional_info['BasinSizes'])
+            summary['Largest basin size'] = max(basin_sizes)
+            entropy = get_entropy_of_basin_size_distribution(basin_sizes)
             summary['Basin size entropy'] = entropy
             summary['Derrida value'] = derrida
-            summary['Coherence'] = additional_info['Coherence']
-            summary['Fragility'] = additional_info['Fragility']
+            summary['Coherence'] = coherence
+            summary['Fragility'] = fragility
     
         if as_dict:
             return summary
