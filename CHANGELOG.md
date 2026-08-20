@@ -8,7 +8,7 @@
 ### Fixed
 - Fixed `AttractorID` bookkeeping in Monte Carlo synchronous attractor detection in `.get_attractors_synchronous()`. Transient states encountered while discovering a new attractor are now correctly assigned to that attractor.
 - Fixed double counting of newly discovered attractors in `.get_attractors_and_robustness_synchronous()`, which could cause `BasinSizesApproximation` to sum to greater than 1. `BasinSizesApproximation` may still sum to less than 1 when simulation timeouts occur.
-
+- Fixed an error in `.summary(compute_all=True)` when dynamics are computed by simulation for networks of size N>=15. 
 
 ## [1.0.2] - 2026-07-31
 
