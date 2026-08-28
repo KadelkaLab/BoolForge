@@ -610,7 +610,7 @@ class BooleanNetworkDynamicsAsyncMixin:
 
 
     @staticmethod
-    def _gmres(A: csr_matrix, B: np.ndarray, probability_cutoff: bool):
+    def _gmres(A: csr_matrix, B: np.ndarray, probability_cutoff: bool) -> np.ndarray:
         """
         Solve ``A x = b`` column-by-column for each column ``b`` of `B` using
         GMRES.
@@ -636,7 +636,7 @@ class BooleanNetworkDynamicsAsyncMixin:
             ``A x = B[:, a]``.
         """
         dims = (np.shape(A)[1], np.shape(B)[1])    
-        out_matrix = np.zeros(dims, dtype=np.float32)
+        out_matrix = np.zeros(dims, dtype=np.float64)
         if probability_cutoff:
             cutoff = 1.0
         else:
@@ -644,7 +644,7 @@ class BooleanNetworkDynamicsAsyncMixin:
         for a in range(dims[1]):
             b = B[:, a]
             x,_ = gmres(A,b,atol=1e-10)
-            x = np.clip(x.astype(np.float32), 0.0, cutoff)
+            x = np.clip(x.astype(np.float64), 0.0, cutoff)
             out_matrix[:,a] = x
         if probability_cutoff:
             row_sums = out_matrix.sum(axis=1, keepdims=True)
@@ -887,6 +887,24 @@ class BooleanNetworkDynamicsAsyncMixin:
 
 
     def get_basin_sizes_asynchronous_exact(self, relative=True) -> np.ndarray:
+        """
+        Compute the exact basin sizes of the asynchronous terminal SCCs.
+
+        Basin size is defined as the mean absorption probability over all
+        network states. Thus, the relative basin sizes sum to one.
+
+        Parameters
+        ----------
+        relative : bool, optional
+            If True, return basin sizes as proportions of the state space.
+            If False, return basin sizes as numbers of states. Default is True.
+
+        Returns
+        -------
+        numpy.ndarray
+            One basin size for each terminal SCC, in the same order as returned
+            by ``get_terminal_sccs_asynchronous_exact``.
+        """
         if ('BasinSizes', 'asynchronous') in self._properties_exact:
             basin_sizes = self._properties_exact[('BasinSizes', 'asynchronous')]
         else:
@@ -901,12 +919,34 @@ class BooleanNetworkDynamicsAsyncMixin:
 
 
     def compute_entropy(self) -> dict:
+        """
+        Compute entropy-based measures of asynchronous attractor structure.
 
+        For each network state, computes the Shannon entropy of its absorption
+        probability distribution over terminal SCCs. Also computes the mean
+        state entropy, the entropy of the basin-size distribution, and the mean
+        state entropy within each basin.
+
+        Returns
+        -------
+        dict
+            Dictionary containing:
+
+            - ``state_entropies`` : numpy.ndarray
+                Shannon entropy of the absorption probabilities for each state.
+            - ``basin_entropy`` : float
+                Shannon entropy of the distribution of basin sizes.
+            - ``mean_state_entropy`` : float
+                Mean state entropy over all network states.
+            - ``basin_mean_state_entropies`` : numpy.ndarray
+                Mean state entropy among states having positive absorption
+                probability into each terminal SCC.
+        """
         if ('mean_state_entropy', 'asynchronous') in self._properties_exact:
-            return [self._properties_exact[('state_entropies', 'asynchronous')],
-                    self._properties_exact[('basin_entropy', 'asynchronous')],
-                    self._properties_exact[('mean_state_entropy', 'asynchronous')],
-                    self._properties_exact[('basin_mean_state_entropies', 'asynchronous')]]
+            return {'state_entropies' : self._properties_exact[('state_entropies', 'asynchronous')],
+                    'basin_entropy' : self._properties_exact[('basin_entropy', 'asynchronous')],
+                    'mean_state_entropy' : self._properties_exact[('mean_state_entropy', 'asynchronous')],
+                    'basin_mean_state_entropies' : self._properties_exact[('basin_mean_state_entropies', 'asynchronous')]}
         absorption_probabilities = self.get_absorption_probabilities_exact()
 
         xlnx_mat = np.multiply(np.log(absorption_probabilities, 
@@ -919,10 +959,14 @@ class BooleanNetworkDynamicsAsyncMixin:
         basin_sizes = self.get_basin_sizes_asynchronous_exact()
         basin_entropy = entropy(basin_sizes)
 
-        basin_mean_state_entropies = np.nanmean(np.where(absorption_probabilities > 0, 
-                                                        state_entropies[:, None], 
-                                                        np.nan), 
-                                                axis=0)
+        basin_mean_state_entropies = np.divide(
+            np.nanmean(
+                np.multiply(absorption_probabilities,
+                            np.where(absorption_probabilities>0, 
+                                     state_entropies[:, None], 
+                                     np.nan)), 
+                       axis=0),
+                                               basin_sizes)
         
         self._set_property('state_entropies', state_entropies,
                         context='asynchronous', exact=True)
@@ -938,6 +982,19 @@ class BooleanNetworkDynamicsAsyncMixin:
 
 
     def _compute_local_divergence_async(self):
+        """
+        Compute the local divergence at every network state.
+
+        For each state, local divergence is the mean Jensen-Shannon divergence
+        between its absorption-probability distribution and those of its
+        one-bit neighbors.
+
+        Returns
+        -------
+        numpy.ndarray
+            Array of length ``2**N`` containing the local divergence at each
+            network state.
+        """
         absorption_probabilities = self.get_absorption_probabilities_exact()
         entropies = self.compute_entropy()
         state_entropies = entropies['state_entropies']
@@ -953,6 +1010,16 @@ class BooleanNetworkDynamicsAsyncMixin:
 
 
     def get_divergence(self):
+        """
+        Compute the mean and state-resolved divergence of the asynchronous dynamics.
+
+        Returns
+        -------
+        network_divergence : float
+            Mean local divergence over all network states.
+        local_divergence : numpy.ndarray
+            Local divergence at each network state.
+        """
         local_divergence = self._compute_local_divergence_async()
         network_divergence = np.mean(local_divergence)
         return network_divergence, local_divergence
