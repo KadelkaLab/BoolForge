@@ -643,7 +643,11 @@ class BooleanNetworkDynamicsAsyncMixin:
             cutoff = None
         for a in range(dims[1]):
             b = B[:, a]
-            x,_ = gmres(A,b,atol=1e-10)
+            x, info = gmres(A,b,atol=1e-10)
+            if info != 0:
+                raise RuntimeError(
+                    f"GMRES failed to converge for column {a} (info={info})."
+                )
             x = np.clip(x.astype(np.float64), 0.0, cutoff)
             out_matrix[:,a] = x
         if probability_cutoff:
@@ -865,17 +869,17 @@ class BooleanNetworkDynamicsAsyncMixin:
         terminal_sccs = self.get_terminal_sccs_asynchronous_exact()
         transient_states = np.setdiff1d(np.arange(1 << self.N),
                                         np.concatenate(terminal_sccs))
-        relavent_probs = absorption_probs[transient_states, :]
+        relavant_probs = absorption_probs[transient_states, :]
         mean_absorption_times_to_any_scc = np.zeros(1 << self.N, dtype=np.float32)
         mean_absorption_times_to_specific_sccs = np.full(np.shape(absorption_probs), np.nan, dtype=np.float32)
         if len(transient_states)>0:
             A, _ = self._build_absorption_system()
-            cap_N_squared_R = self._gmres(A, relavent_probs, False)
+            cap_N_squared_R = self._gmres(A, relavant_probs, False)
             mean_absorption_times_to_any_scc[transient_states] = cap_N_squared_R.sum(axis=1)
             mean_absorption_times_to_specific_sccs[transient_states] = np.divide(
-                cap_N_squared_R, relavent_probs,
+                cap_N_squared_R, relavant_probs,
                 out=np.full_like(cap_N_squared_R, np.nan),
-                where=relavent_probs>0)
+                where=relavant_probs>0)
         for a, states in enumerate(terminal_sccs):
             mean_absorption_times_to_any_scc[states] = 0.0
             mean_absorption_times_to_specific_sccs[states, a] = 0.0
