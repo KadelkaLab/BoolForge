@@ -9,6 +9,7 @@ Created on Wed May 27 00:52:32 2026
 
 from collections.abc import Sequence
 import numpy as np
+from scipy.stats import entropy
 from scipy.sparse import csr_matrix, identity
 from scipy.sparse.linalg import gmres
 from scipy.sparse.csgraph import connected_components
@@ -520,7 +521,7 @@ class BooleanNetworkDynamicsAsyncMixin:
             utils.flatten(terminal_sccs)
         )
 
-    
+
     def get_number_frozen_nodes_asynchronous_exact(self) -> int:
         """
         Compute the number of frozen nodes in the asynchronous dynamics.
@@ -535,6 +536,159 @@ class BooleanNetworkDynamicsAsyncMixin:
             update_scheme="asynchronous"
         )
         
+
+    def _build_absorption_system(
+        self,
+        update_scheme: str = "asynchronous",
+        *,
+        p_degradation: Sequence[float] | None = None,
+        p_activation: Sequence[float] | None = None,
+    ) -> tuple[csr_matrix, np.ndarray]:
+        """
+        Build the linear system (A, R) used to solve for absorption
+        probabilities of an absorbing Markov chain.
+
+        Restricts the stochastic transition matrix for the given update
+        scheme to transient states, producing ``A = I - Q`` (where ``Q`` is
+        the transient-to-transient sub-matrix) and ``R`` (one-step
+        transition probabilities from transient states directly into each
+        terminal SCC). Solving ``A x = R`` for `x` gives absorption
+        probabilities; solving ``A x = (A^-1 R)`` gives expected absorption
+        times.
+
+        Parameters
+        ----------
+        update_scheme : {"asynchronous", "sdds"}, optional
+            Stochastic update scheme. Default is "asynchronous".
+        p_degradation : Sequence[float] or None, optional
+            Node-specific degradation probabilities. Required for SDDS.
+        p_activation : Sequence[float] or None, optional
+            Node-specific activation probabilities. Required for SDDS.
+
+        Returns
+        -------
+        fundamental_matrix : scipy.sparse.csr_matrix
+            The matrix ``I - Q`` of shape ``(n_transients, n_transients)``,
+            where ``Q`` is the transition matrix restricted to transient
+            states.
+        transient_to_absorbing_matrix : numpy.ndarray
+            Matrix of shape ``(n_transients, n_terminal_sccs)`` giving the
+            one-step transition probabilities from transient states directly
+            into each terminal SCC.
+        """
+        (
+            update_scheme,
+            p_degradation,
+            p_activation,
+        ) = self._validate_stochastic_update_scheme(
+            update_scheme=update_scheme,
+            p_degradation=p_degradation,
+            p_activation=p_activation,
+        )
+
+        STG = self.get_stochastic_transition_matrix(
+            update_scheme=update_scheme,
+            p_degradation=p_degradation,
+            p_activation=p_activation,
+        )
+        terminal_sccs = self.get_terminal_sccs_stochastic_exact(
+            update_scheme=update_scheme,
+            p_degradation=p_degradation,
+            p_activation=p_activation,
+        )
+        n_terminal_sccs = len(terminal_sccs)
+        transient_states = np.setdiff1d(np.arange(1 << self.N),
+                                        np.concatenate(terminal_sccs))
+        n_transients = len(transient_states)
+
+        transient_mask = np.zeros(1 << self.N, dtype=bool)
+        transient_mask[transient_states] = True
+        transient_index = -np.ones(1 << self.N, dtype=np.int32)
+        transient_index[transient_states] = np.arange(n_transients)
+
+        # build Q and R without giant reorder/slicing
+        rows_Q = []
+        cols_Q = []
+        vals_Q = []
+        transient_to_absorbing_matrix = np.zeros((n_transients, n_terminal_sccs), dtype=np.float32)
+
+        terminal_scc_lookup = {}
+        for a, states in enumerate(terminal_sccs):
+            for s in states:
+                terminal_scc_lookup[s] = a
+
+        for s in transient_states:
+            s_local = transient_index[s]
+            start = STG.indptr[s]
+            end = STG.indptr[s + 1]
+            succs = STG.indices[start:end]
+            probs = STG.data[start:end]
+
+            for y, p in zip(succs, probs):
+                if transient_mask[y]:
+                    rows_Q.append(s_local)
+                    cols_Q.append(transient_index[y])
+                    vals_Q.append(p)
+                else:
+                    a = terminal_scc_lookup[y]
+                    transient_to_absorbing_matrix[s_local, a] += p
+
+        Q = csr_matrix(
+            (vals_Q, (rows_Q, cols_Q)),
+            shape=(n_transients, n_transients),
+            dtype=np.float32
+        )
+        uninverted_fundamental_matrix = identity(n_transients, dtype=np.float32, format='csr') - Q
+
+        return uninverted_fundamental_matrix, transient_to_absorbing_matrix
+
+
+    @staticmethod
+    def _gmres(A: csr_matrix, B: np.ndarray, probability_cutoff: bool) -> np.ndarray:
+        """
+        Solve ``A x = b`` column-by-column for each column ``b`` of `B` using
+        GMRES.
+
+        Parameters
+        ----------
+        A : scipy.sparse.csr_matrix
+            Square coefficient matrix of shape ``(n, n)``.
+        B : numpy.ndarray
+            Right-hand side matrix of shape ``(n, m)``. Each column is
+            solved for independently.
+        probability_cutoff : bool
+            If True, clip each solution to ``[0, 1]`` and renormalize each
+            row of the result to sum to 1 (for absorption probabilities).
+            If False, only clip below at 0 with no upper bound and no
+            renormalization (for expected absorption times, which are
+            non-negative but otherwise unbounded).
+
+        Returns
+        -------
+        numpy.ndarray
+            Array of shape ``(n, m)`` where column ``a`` is the solution to
+            ``A x = B[:, a]``.
+        """
+        dims = (np.shape(A)[1], np.shape(B)[1])    
+        out_matrix = np.zeros(dims, dtype=np.float64)
+        if probability_cutoff:
+            cutoff = 1.0
+        else:
+            cutoff = None
+        for a in range(dims[1]):
+            b = B[:, a]
+            x, info = gmres(A,b,atol=1e-10)
+            if info != 0:
+                raise RuntimeError(
+                    f"GMRES failed to converge for column {a} (info={info})."
+                )
+            x = np.clip(x.astype(np.float64), 0.0, cutoff)
+            out_matrix[:,a] = x
+        if probability_cutoff:
+            row_sums = out_matrix.sum(axis=1, keepdims=True)
+            out_matrix /= row_sums
+        return out_matrix
+
 
     def get_absorption_probabilities_stochastic_exact(
             self,
@@ -594,11 +748,6 @@ class BooleanNetworkDynamicsAsyncMixin:
         if status == "exact":
             return absorption_probabilities
 
-        STG = self.get_stochastic_transition_matrix(
-            update_scheme=update_scheme,
-            p_degradation=p_degradation,
-            p_activation=p_activation
-        )
         terminal_sccs = self.get_terminal_sccs_stochastic_exact(
             update_scheme=update_scheme,
             p_degradation=p_degradation,
@@ -613,56 +762,12 @@ class BooleanNetworkDynamicsAsyncMixin:
         absorption_probs = np.zeros(((1 << self.N), n_terminal_sccs),dtype=np.float32)
 
         if n_transients > 0:
-            transient_mask = np.zeros(1 << self.N, dtype=bool)
-            transient_mask[transient_states] = True
-    
-            transient_index = -np.ones(1 << self.N, dtype=np.int32)
-            transient_index[transient_states] = np.arange(n_transients)
-    
-            # build Q and R without giant reorder/slicing
-            rows_Q = []
-            cols_Q = []
-            vals_Q = []
-            R = np.zeros((n_transients, n_terminal_sccs), dtype=np.float32)
-    
-            terminal_scc_lookup = {}
-            for a, states in enumerate(terminal_sccs):
-                for s in states:
-                    terminal_scc_lookup[s] = a
-    
-            for s in transient_states:
-                s_local = transient_index[s]
-                start = STG.indptr[s]
-                end = STG.indptr[s + 1]
-                succs = STG.indices[start:end]
-                probs = STG.data[start:end]
-    
-                for y, p in zip(succs, probs):
-                    if transient_mask[y]:
-                        rows_Q.append(s_local)
-                        cols_Q.append(transient_index[y])
-                        vals_Q.append(p)
-                    else:
-                        a = terminal_scc_lookup[y]
-                        R[s_local, a] += p
-    
-            Q = csr_matrix(
-                (vals_Q, (rows_Q, cols_Q)),
-                shape=(n_transients,n_transients),
-                dtype=np.float32
+            A, R = self._build_absorption_system(
+                update_scheme=update_scheme,
+                p_degradation=p_degradation,
+                p_activation=p_activation,
             )
-            A = identity(n_transients, dtype=np.float32, format='csr') - Q
-
-            #compute absorption probabilities
-            for a in range(n_terminal_sccs):
-                b = R[:, a]
-                x,_ = gmres(A,b,atol=1e-10)
-                x = np.clip(x.astype(np.float32), 0.0, 1.0)
-                absorption_probs[transient_states,a] = x
-            
-            #correct for potential tiny numerical errors
-            row_sums = absorption_probs[transient_states].sum(axis=1, keepdims=True)
-            absorption_probs[transient_states] /= row_sums
+            absorption_probs[transient_states] = self._gmres(A, R, True)
         
         for a, states in enumerate(terminal_sccs):
             absorption_probs[states, a] = 1.0   
@@ -676,18 +781,213 @@ class BooleanNetworkDynamicsAsyncMixin:
     def get_absorption_probabilities_exact(self) -> np.ndarray:
         """
         Compute exact absorption probabilities for the asynchronous dynamics.
-        
-        Notes:
+ 
+        Notes
         -----
         This method is retained for backward compatibility. For new code, use
-        `get_absorption_probabilities_stochastic_exact(update_scheme='asynchronous')` 
+        ``get_absorption_probabilities_stochastic_exact(update_scheme="asynchronous")``
         instead.
         """
         return self.get_absorption_probabilities_stochastic_exact(
-            update_scheme='asynchronous'
+            update_scheme="asynchronous"
         )
 
-    
+
+    def get_expected_absorption_times_exact(self) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Compute exact expected absorption times for the asynchronous dynamics.
+
+        For every network state, this method computes the expected number of
+        asynchronous update steps until the trajectory is absorbed into some
+        terminal SCC, as well as the expected number of steps conditioned on
+        absorption into each specific terminal SCC.
+
+        Both quantities are obtained from the fundamental-matrix identity for
+        absorbing Markov chains (via ``A x = N R`` where ``N = A^-1``, using
+        the previously computed absorption probabilities ``N R`` as the new
+        right-hand side) and are cached after the first computation.
+
+        Returns
+        -------
+        mean_absorption_times_to_any_scc : numpy.ndarray
+            Array of shape ``(2**N,)`` where entry ``[x]`` is the expected
+            number of steps for state ``x`` to be absorbed into any terminal
+            SCC. Terminal states have value 0.
+        mean_absorption_times_to_specific_sccs : numpy.ndarray
+            Array of shape ``(2**N, n_terminal_sccs)`` where entry
+            ``[x, a]`` is the expected number of steps for state ``x`` to be
+            absorbed, conditioned on absorption occurring into terminal SCC
+            ``a``. Entries are ``NaN`` where absorption into SCC ``a`` from
+            state ``x`` has zero probability. State ``x``'s own terminal SCC
+            entry is 0.
+        """
+        if ('mean_absorption_times_to_any_scc', 'asynchronous') in self._properties_exact:
+            return self._properties_exact[('mean_absorption_times_to_any_scc', 'asynchronous')], self._properties_exact[('mean_absorption_times_to_specific_sccs', 'asynchronous')]
+
+        absorption_probs = self.get_absorption_probabilities_exact()
+        terminal_sccs = self.get_terminal_sccs_asynchronous_exact()
+        transient_states = np.setdiff1d(np.arange(1 << self.N),
+                                        np.concatenate(terminal_sccs))
+        relavant_probs = absorption_probs[transient_states, :]
+        mean_absorption_times_to_any_scc = np.zeros(1 << self.N, dtype=np.float32)
+        mean_absorption_times_to_specific_sccs = np.full(np.shape(absorption_probs), np.nan, dtype=np.float32)
+        if len(transient_states)>0:
+            A, _ = self._build_absorption_system()
+            cap_N_squared_R = self._gmres(A, relavant_probs, False)
+            mean_absorption_times_to_any_scc[transient_states] = cap_N_squared_R.sum(axis=1)
+            mean_absorption_times_to_specific_sccs[transient_states] = np.divide(
+                cap_N_squared_R, relavant_probs,
+                out=np.full_like(cap_N_squared_R, np.nan),
+                where=relavant_probs>0)
+        for a, states in enumerate(terminal_sccs):
+            mean_absorption_times_to_any_scc[states] = 0.0
+            mean_absorption_times_to_specific_sccs[states, a] = 0.0
+        self._set_property('mean_absorption_times_to_any_scc', mean_absorption_times_to_any_scc,
+                            context='asynchronous', exact=True)
+        self._set_property('mean_absorption_times_to_specific_sccs', mean_absorption_times_to_specific_sccs,
+                        context='asynchronous', exact=True)
+        return mean_absorption_times_to_any_scc, mean_absorption_times_to_specific_sccs
+
+
+    def get_basin_sizes_asynchronous_exact(self, relative=True) -> np.ndarray:
+        """
+        Compute the exact basin sizes of the asynchronous terminal SCCs.
+
+        Basin size is defined as the mean absorption probability over all
+        network states. Thus, the relative basin sizes sum to one.
+
+        Parameters
+        ----------
+        relative : bool, optional
+            If True, return basin sizes as proportions of the state space.
+            If False, return basin sizes as numbers of states. Default is True.
+
+        Returns
+        -------
+        numpy.ndarray
+            One basin size for each terminal SCC, in the same order as returned
+            by ``get_terminal_sccs_asynchronous_exact``.
+        """
+        if ('BasinSizes', 'asynchronous') in self._properties_exact:
+            basin_sizes = self._properties_exact[('BasinSizes', 'asynchronous')]
+        else:
+            absorption_probs = self.get_absorption_probabilities_exact()
+            basin_sizes = np.sum(absorption_probs, axis=0) / (2 ** self.N)
+            self._set_property('BasinSizes', basin_sizes,
+                               context='asynchronous', exact=True)
+        if relative:
+            return basin_sizes
+        else:
+            return basin_sizes * (2**self.N)
+
+
+    def compute_entropy(self) -> dict:
+        """
+        Compute entropy-based measures of asynchronous attractor structure.
+
+        For each network state, computes the Shannon entropy of its absorption
+        probability distribution over terminal SCCs. Also computes the mean
+        state entropy, the entropy of the basin-size distribution, and the mean
+        state entropy within each basin.
+
+        Returns
+        -------
+        dict
+            Dictionary containing:
+
+            - ``state_entropies`` : numpy.ndarray
+                Shannon entropy of the absorption probabilities for each state.
+            - ``basin_entropy`` : float
+                Shannon entropy of the distribution of basin sizes.
+            - ``mean_state_entropy`` : float
+                Mean state entropy over all network states.
+            - ``basin_mean_state_entropies`` : numpy.ndarray
+                Mean state entropy among states having positive absorption
+                probability into each terminal SCC.
+        """
+        if ('mean_state_entropy', 'asynchronous') in self._properties_exact:
+            return {'state_entropies' : self._properties_exact[('state_entropies', 'asynchronous')],
+                    'basin_entropy' : self._properties_exact[('basin_entropy', 'asynchronous')],
+                    'mean_state_entropy' : self._properties_exact[('mean_state_entropy', 'asynchronous')],
+                    'basin_mean_state_entropies' : self._properties_exact[('basin_mean_state_entropies', 'asynchronous')]}
+        absorption_probabilities = self.get_absorption_probabilities_exact()
+
+        xlnx_mat = np.multiply(np.log(absorption_probabilities, 
+                                    out=np.zeros_like(absorption_probabilities), 
+                                    where=absorption_probabilities>0),
+                            absorption_probabilities)
+        state_entropies = -np.sum(xlnx_mat, 1)
+        mean_state_entropy = np.mean(state_entropies)
+
+        basin_sizes = self.get_basin_sizes_asynchronous_exact()
+        basin_entropy = entropy(basin_sizes)
+
+        basin_mean_state_entropies = np.divide(
+            np.nanmean(
+                np.multiply(absorption_probabilities,
+                            np.where(absorption_probabilities>0, 
+                                     state_entropies[:, None], 
+                                     np.nan)), 
+                       axis=0),
+                                               basin_sizes)
+        
+        self._set_property('state_entropies', state_entropies,
+                        context='asynchronous', exact=True)
+        self._set_property('basin_entropy', basin_entropy,
+                            context='asynchronous', exact=True)
+        self._set_property('mean_state_entropy', mean_state_entropy,
+                            context='asynchronous', exact=True)
+        self._set_property('basin_mean_state_entropies', basin_mean_state_entropies,
+                            context='asynchronous', exact=True)
+
+        return {'state_entropies':state_entropies, 'basin_entropy':basin_entropy, 
+                'mean_state_entropy':mean_state_entropy, 'basin_mean_state_entropies':basin_mean_state_entropies}
+
+
+    def _compute_local_divergence_async(self):
+        """
+        Compute the local divergence at every network state.
+
+        For each state, local divergence is the mean Jensen-Shannon divergence
+        between its absorption-probability distribution and those of its
+        one-bit neighbors.
+
+        Returns
+        -------
+        numpy.ndarray
+            Array of length ``2**N`` containing the local divergence at each
+            network state.
+        """
+        absorption_probabilities = self.get_absorption_probabilities_exact()
+        entropies = self.compute_entropy()
+        state_entropies = entropies['state_entropies']
+        n_states = absorption_probabilities.shape[0]    
+        local_divergence = np.zeros(n_states, dtype=np.float32)
+        for x in range(n_states):
+            total = 0.0
+            for bit in range(self.N):
+                y = x ^ (1 << bit)
+                total += entropy((absorption_probabilities[x]+absorption_probabilities[y])/2) - (state_entropies[x]+state_entropies[y])/2
+            local_divergence[x] = total / self.N
+        return local_divergence
+
+
+    def get_divergence(self):
+        """
+        Compute the mean and state-resolved divergence of the asynchronous dynamics.
+
+        Returns
+        -------
+        network_divergence : float
+            Mean local divergence over all network states.
+        local_divergence : numpy.ndarray
+            Local divergence at each network state.
+        """
+        local_divergence = self._compute_local_divergence_async()
+        network_divergence = np.mean(local_divergence)
+        return network_divergence, local_divergence
+
+
     def get_steady_states_asynchronous(
         self,
         n_simulations: int = 500,
