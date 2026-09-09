@@ -1909,6 +1909,7 @@ class MultistateNetwork(boolforge.WiringDiagram):
 
     def get_attractors_synchronous_exact(
         self,
+        use_numba: bool = True,
     ) -> dict:
         """
         Compute all attractors and their exact basin sizes under synchronous updating.
@@ -1921,6 +1922,12 @@ class MultistateNetwork(boolforge.WiringDiagram):
         This computation requires memory and time proportional to the network size and is
         intended for small-to-moderate networks only.
     
+        Parameters
+        ----------
+        use_numba : bool, optional
+            If True (default) and Numba is available, use a compiled kernel for
+            attractor detection.
+            
         Returns
         -------
         dict
@@ -1938,7 +1945,7 @@ class MultistateNetwork(boolforge.WiringDiagram):
                 The synchronous state transition graph.
         """
         if self.STG is None:
-            self.compute_synchronous_state_transition_graph()
+            self.compute_synchronous_state_transition_graph(use_numba=use_numba)
     
         attractors = []
         attractor_id = -np.ones(self.R.prod(0, int), dtype=np.int32)

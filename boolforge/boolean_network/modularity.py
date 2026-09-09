@@ -47,7 +47,7 @@ class BooleanNetworkModularityMixin:
                 for i in range(len(nodes_in_module)):
                     for j in range(len(I1[i])):
                         I1[i][j] = pos_in_module[I1[i][j]]
-                bn_of_module = self.__class__.BooleanNetwork(F=F1, I=I1)
+                bn_of_module = self.__class__(F=F1, I=I1)
                 module_attractors = bn_of_module.get_attractors_synchronous_exact()['Attractors']
                 module_attractors_binary[module_id] = [
                     np.array(list(
@@ -107,7 +107,7 @@ class BooleanNetworkModularityMixin:
     
                 F2 = [self.F[j] for j in nodes_in_module]
                 I2 = [list(map(lambda x: pos_in_module[x],self.I[j])) for j in nodes_in_module]                
-                bn_of_module = self.__class__.BooleanNetwork(F=F2, I=I2)
+                bn_of_module = self.__class__(F=F2, I=I2)
                     
                 module_attractors = bn_of_module.get_attractors_synchronous_exact_with_external_inputs(all_input_patterns[0])['Attractors']
                 
