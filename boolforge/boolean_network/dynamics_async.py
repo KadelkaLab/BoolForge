@@ -283,6 +283,7 @@ class BooleanNetworkDynamicsAsyncMixin:
         else:
             _build_sdds_transition_csr_method = _build_sdds_transition_csr
 
+        STG_synchronous_exact, _ = self._get_property("STG", context="synchronous")
         indptr, indices, data = _build_sdds_transition_csr_method(
             STG_synchronous_exact,
             p_degradation=p_degradation,
