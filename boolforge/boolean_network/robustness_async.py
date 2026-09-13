@@ -16,7 +16,7 @@ if __LOADED_NUMBA__:
 
 
 class BooleanNetworkRobustnessAsyncMixin():
-    def get_terminal_sccs_and_robustness_asynchronous_exact(self) -> dict:
+    def get_terminal_sccs_and_robustness_asynchronous_exact(self, compute_absorption_times=False) -> dict:
         """
         Compute terminal SCCs (attractors) and exact robustness measures of an 
         asynchronously updated Boolean network.
@@ -27,10 +27,23 @@ class BooleanNetworkRobustnessAsyncMixin():
         terminal SCCs reached  from each state are determined exactly. Based on
         this decomposition, exact coherence measures are computed for the full
         network, for each basin of attraction, and for each attractor.
+        Entropy-based measures of basin structure and local divergence measures
+        are also computed. Expected absorption times are computed only if
+        requested via ``compute_absorption_times``, as they require solving an
+        additional linear system.
 
         This computation requires memory and time proportional to ``2**N`` and
         is intended for small-to-moderate networks (e.g., ``N ≈ 18`` on typical 
         hardware).
+
+        Parameters
+        ----------
+        compute_absorption_times : bool, optional
+            If True, also compute exact expected absorption times (see
+            ``ExpectedAbsorptionTimesAny`` and ``ExpectedAbsorptionTimesSpecific``
+            below). This requires an additional linear solve on top of the rest
+            of this method's computation and is skipped by default. If False,
+            both fields are returned as ``None``. Default is False.
 
         Returns
         -------
@@ -60,14 +73,46 @@ class BooleanNetworkRobustnessAsyncMixin():
             - TerminalSCCCoherencesStationary : np.ndarray of float
                 Exact coherence of each terminal SCC (when weighting each 
                 attractor state based on the stationary distribution).
+            - BasinEntropy : float
+                Shannon entropy of the distribution of basin sizes across
+                terminal SCCs.
+            - StateEntropies : np.ndarray of float
+                Array of shape ``(2**N,)``. Shannon entropy of each state's
+                absorption-probability distribution over terminal SCCs.
+            - MeanStateEntropyPerBasin : np.ndarray of float
+                Mean state entropy among states with positive absorption
+                probability into each terminal SCC.
+            - ExpectedAbsorptionTimesAny : np.ndarray of float or None
+                Array of shape ``(2**N,)``. Expected number of asynchronous
+                update steps for each state to be absorbed into any terminal
+                SCC. Terminal states have value 0. ``None`` unless
+                ``compute_absorption_times`` is True.
+            - ExpectedAbsorptionTimesSpecific : np.ndarray of float or None
+                Array of shape ``(2**N, NumberOfTerminalSCCs)``. Expected number
+                of steps for each state to be absorbed, conditioned on
+                absorption into each specific terminal SCC. Entries are ``NaN``
+                where absorption into that SCC from that state has zero
+                probability. ``None`` unless ``compute_absorption_times`` is
+                True.
+            - NetworkDivergence : float
+                Mean local divergence over all network states, where local
+                divergence at a state is the mean Jensen-Shannon divergence
+                between its absorption-probability distribution and those of
+                its one-bit neighbors.
+            - LocalDivergences : np.ndarray of float
+                Array of shape ``(2**N,)``. Local divergence at each network
+                state.
         """
         if not __LOADED_NUMBA__:
             _numba_required("Asynchronous exact robustness computation")
         
         terminal_sccs = self.get_terminal_sccs_asynchronous_exact()
         n_terminal_sccs = int(len(terminal_sccs))
-        absorption_times_any, absorption_times_specific = self.get_expected_absorption_times_exact()
-        network_divergence, local_divergences = self.get_divergence()
+        if compute_absorption_times:
+            absorption_times_any, absorption_times_specific = self.get_expected_absorption_times_exact()
+        else:
+            absorption_times_any = None
+            absorption_times_specific = None
         if n_terminal_sccs==1:
             return  {
                 "TerminalSCCs": terminal_sccs,
@@ -89,8 +134,8 @@ class BooleanNetworkRobustnessAsyncMixin():
                 "MeanStateEntropyPerBasin": np.zeros(1,dtype=np.float32),
                 "ExpectedAbsorptionTimesAny": absorption_times_any,
                 "ExpectedAbsorptionTimesSpecific": absorption_times_specific,
-                "NetworkDivergence": network_divergence,
-                "LocalDivergences": local_divergences
+                "NetworkDivergence": 0.,
+                "LocalDivergences": np.zeros((1 << self.N),dtype=np.float32)
             }
             
         absorption_probs = self.get_absorption_probabilities_exact()
@@ -135,6 +180,7 @@ class BooleanNetworkRobustnessAsyncMixin():
                     neighbor_attraction_probability[terminal_scc, i]
                 )
         entropies_dict = self.compute_entropy()
+        network_divergence, local_divergences = self.get_divergence()
         return  {
             "TerminalSCCs": terminal_sccs,
             "NumberOfTerminalSCCs": n_terminal_sccs,
