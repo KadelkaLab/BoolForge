@@ -66,6 +66,8 @@ class BooleanNetworkRobustnessAsyncMixin():
         
         terminal_sccs = self.get_terminal_sccs_asynchronous_exact()
         n_terminal_sccs = int(len(terminal_sccs))
+        absorption_times_any, absorption_times_specific = self.get_expected_absorption_times_exact()
+        network_divergence, local_divergences = self.get_divergence()
         if n_terminal_sccs==1:
             return  {
                 "TerminalSCCs": terminal_sccs,
@@ -82,11 +84,19 @@ class BooleanNetworkRobustnessAsyncMixin():
                 "BasinCoherences": np.ones(1),
                 "TerminalSCCCoherencesUniform": np.ones(1),
                 "TerminalSCCCoherencesStationary": np.ones(1),
-            }                
+                "BasinEntropy": 0.,
+                "StateEntropies": np.zeros((1 << self.N),dtype=np.float32),
+                "MeanStateEntropyPerBasin": np.zeros(1,dtype=np.float32),
+                "ExpectedAbsorptionTimesAny": absorption_times_any,
+                "ExpectedAbsorptionTimesSpecific": absorption_times_specific,
+                "NetworkDivergence": network_divergence,
+                "LocalDivergences": local_divergences
+            }
             
         absorption_probs = self.get_absorption_probabilities_exact()
         
-        basin_sizes = absorption_probs.sum(axis=0)
+        relative_basin_sizes = self.get_basin_sizes_asynchronous_exact()
+        basin_sizes = relative_basin_sizes * float(1<<self.N)
         length_terminal_sccs = np.array(list(map(len,terminal_sccs)))
         dim_trap_spaces = np.array(list(map(utils.get_number_of_varying_nodes,
                                             terminal_sccs)))
@@ -97,7 +107,6 @@ class BooleanNetworkRobustnessAsyncMixin():
         basin_coherences = (
             absorption_probs * neighbor_attraction_probability
         ).sum(axis=0) / basin_sizes
-        relative_basin_sizes = basin_sizes / float(1<<self.N)
         coherence = np.dot(basin_coherences, relative_basin_sizes)
         terminal_scc_coherences_uniform = np.array([
             neighbor_attraction_probability[a, i].mean()
@@ -125,7 +134,7 @@ class BooleanNetworkRobustnessAsyncMixin():
                     psi,
                     neighbor_attraction_probability[terminal_scc, i]
                 )
-        
+        entropies_dict = self.compute_entropy()
         return  {
             "TerminalSCCs": terminal_sccs,
             "NumberOfTerminalSCCs": n_terminal_sccs,
@@ -137,4 +146,11 @@ class BooleanNetworkRobustnessAsyncMixin():
             "BasinCoherences": basin_coherences,
             "TerminalSCCCoherencesUniform": terminal_scc_coherences_uniform,
             "TerminalSCCCoherencesStationary": terminal_scc_coherences_stationary,
-        }        
+            "BasinEntropy": entropies_dict["basin_entropy"],
+            "StateEntropies": entropies_dict["state_entropies"],
+            "MeanStateEntropyPerBasin":entropies_dict["basin_mean_state_entropies"],
+            "ExpectedAbsorptionTimesAny": absorption_times_any,
+            "ExpectedAbsorptionTimesSpecific": absorption_times_specific,
+            "NetworkDivergence": network_divergence,
+            "LocalDivergences": local_divergences
+        }
