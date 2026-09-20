@@ -39,25 +39,25 @@ from .boolean_network import BooleanNetwork
 from .wiring_diagram import WiringDiagram
 from . import utils
 
-__all__ = [
-    "random_function",
-    "random_function_with_bias",
-    "random_function_with_exact_hamming_weight",
-    "random_degenerate_function",
-    "random_non_degenerate_function",
-    "random_non_canalizing_function",
-    "random_non_canalizing_non_degenerate_function",
-    "random_parity_function",
-    "random_k_canalizing_function",
-    "random_k_canalizing_function_with_specific_layer_structure",
-    "random_NCF",
-    "random_network",
-    "random_null_model",
-    "random_wiring_diagram",
-    "random_edge_list",
-    "random_degrees",
-    "rewire_wiring_diagram",
-]
+# __all__ = [
+#     "random_function",
+#     "random_function_with_bias",
+#     "random_function_with_exact_hamming_weight",
+#     "random_degenerate_function",
+#     "random_non_degenerate_function",
+#     "random_non_canalizing_function",
+#     "random_non_canalizing_non_degenerate_function",
+#     "random_parity_function",
+#     "random_k_canalizing_function",
+#     "random_k_canalizing_function_with_specific_layer_structure",
+#     "random_NCF",
+#     "random_network",
+#     "random_null_model",
+#     "random_wiring_diagram",
+#     "random_edge_list",
+#     "random_degrees",
+#     "rewire_wiring_diagram",
+# ]
 
 
 ## Random function generation
@@ -1434,116 +1434,6 @@ def random_degrees(
     return indegrees
 
 
-def random_edge_list(
-    N: int,
-    indegrees: Sequence[int],
-    allow_self_loops: bool,
-    min_out_degree_one: bool = False,
-    *,
-    rng=None,
-) -> list:
-    """
-    Generate a random directed edge list for a network with prescribed in-degrees.
-
-    Each node ``i`` receives exactly ``indegrees[i]`` incoming edges, with
-    regulators chosen uniformly at random from the set of admissible source
-    nodes. Optionally, the construction enforces that every node regulates at
-    least one other node.
-
-    Parameters
-    ----------
-    N : int
-        Number of nodes in the network.
-    indegrees : sequence of int
-        Length-``N`` sequence specifying the number of incoming edges for each
-        node.
-    allow_self_loops : bool
-        If True, self-loops (edges from a node to itself) are allowed.
-        Default is False.
-    min_out_degree_one : bool, optional
-        If True, enforce that every node has at least one outgoing edge.
-        This is achieved by rewiring edges while preserving the prescribed
-        in-degree sequence. Default is False.
-    rng : int, numpy.random.Generator, numpy.random.RandomState, random.Random, or None, optional
-        Random number generator or seed specification. Passed to
-        ``utils._coerce_rng``.
-
-    Returns
-    -------
-    edge_list : list of tuple of int
-        List of directed edges represented as ``(source, target)`` pairs.
-
-    Raises
-    ------
-    ValueError
-        If ``N`` or ``indegrees`` are inconsistent.
-    AssertionError
-        If sampling constraints cannot be satisfied.
-
-    Notes
-    -----
-    Regulators for each node are sampled uniformly at random without
-    replacement from the set of admissible source nodes. If
-    ``min_out_degree_one``, the algorithm post-processes
-    the initially sampled edge list by replacing edges until every node
-    has at least one outgoing edge, while preserving all in-degrees and
-    respecting the self-regulation constraint.
-
-    No guarantee is made that the resulting edge list is uniformly sampled
-    from the space of all directed graphs satisfying the constraints.
-    """
-
-    rng = utils._coerce_rng(rng)
-
-    # ------------------------------------------------------------
-    # Step 1: generate initial edge list
-    # ------------------------------------------------------------
-    edge_list = []
-    for i in range(N):
-        if not allow_self_loops:
-            candidates = np.append(np.arange(i), np.arange(i + 1, N))
-        else:
-            candidates = np.arange(N)
-
-        indices = rng.choice(candidates, indegrees[i], replace=False)
-        edge_list.extend(zip(indices, np.full(indegrees[i], i, dtype=int)))
-
-    # ------------------------------------------------------------
-    # Step 2: enforce at least one outgoing edge per node (optional)
-    # ------------------------------------------------------------
-    if min_out_degree_one:
-        target_sources = [set() for _ in range(N)]
-        outdegrees = np.zeros(N, dtype=int)
-
-        for s, t in edge_list:
-            target_sources[t].add(s)
-            outdegrees[s] += 1
-
-        sum_indegrees = len(edge_list)
-
-        while np.min(outdegrees) == 0:
-            index_sink = np.where(outdegrees == 0)[0][0]
-            index_edge = rng.integers(sum_indegrees)
-
-            old_source, t = edge_list[index_edge]
-
-            if not allow_self_loops and t == index_sink:
-                continue
-            if index_sink in target_sources[t]:
-                continue
-
-            # perform replacement
-            target_sources[t].discard(old_source)
-            target_sources[t].add(index_sink)
-
-            edge_list[index_edge] = (index_sink, t)
-
-            outdegrees[index_sink] += 1
-            outdegrees[old_source] -= 1
-
-    return edge_list
-
-
 def random_wiring_diagram(
     N: int,
     n: int | float | list | np.ndarray,
@@ -2501,7 +2391,7 @@ def random_non_degenerated_ms_function(
     while True:
         f = np.array(np.floor(rng.random(np.prod(R)) * r), int)
         #if not is_ms_degenerated(f, R):
-        return MultistateFunction(f, r, n)
+        return MultistateFunction(f, r, R, n)
 
 def random_linear_ms_function(
         n : int,
