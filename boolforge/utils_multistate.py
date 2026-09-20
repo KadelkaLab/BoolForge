@@ -9,7 +9,7 @@ Created on Thu Mar 26 09:17:28 2026
 import numpy as np
 from collections.abc import Sequence
 
-from utils import _is_number
+from .utils import _is_number
 
 def _is_boolean(n_states, n_states_inputs):
     if n_states_inputs is None:

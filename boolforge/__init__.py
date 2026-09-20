@@ -36,6 +36,12 @@ from .modularity import (
 
 from .bio_models import get_bio_models_from_repository
 
+from .utils_multistate import (
+    mix2dec, dec2mix,
+    mix2bin, bin2mix,
+    mix2binf, binf2mix,
+)
+
 from .multistate_network import (
     MultistateFunction,
     MultistateNetwork,
