@@ -5,25 +5,130 @@ import warnings
 from collections.abc import Sequence
 import numpy as np
 import math
-import boolforge
 
-import utils_multistate as utils_ms
-import utils
-from multistate_function import MultistateFunction
+from .boolean_network.core import BooleanNetwork, WiringDiagram
+from .utils import find_all_indices, bin2dec, dec2bin, _coerce_rng
+from .utils_multistate import dec2mix, mix2dec
+from .multistate_function_to_be_separated import MultistateFunction
 
-class MultistateNetwork(boolforge.WiringDiagram):
+from .backend._numba import __LOADED_NUMBA__
+if __LOADED_NUMBA__:
+    from .backend.dynamics_sync import _attractors_functional_graph
+
+    from .backend._numba import njit
+    @njit
+    def _compute_synchronous_stg_numba_multistate(
+        F_array_list,
+        I_array_list,
+        states_per_node
+    ):
+        """
+        Compute the synchronous state transition graph for a multistate network
+        with node-specific numbers of states.
+    
+        Parameters
+        ----------
+        F_array_list : list[np.ndarray]
+            List of update tables. The j-th entry contains the output of node j
+            for every combination of regulator states.
+    
+        I_array_list : list[np.ndarray]
+            List of regulator index arrays. The j-th entry contains the indices
+            of the regulators of node j.
+    
+        states_per_node : np.ndarray
+            Integer array of length N_variables where states_per_node[j] is the
+            number of possible states of node j.
+    
+        Returns
+        -------
+        np.ndarray
+            One-dimensional array of length prod(states_per_node) containing,
+            for each state index, the index of its successor state.
+        """
+        N_variables = states_per_node.shape[0]
+    
+        # Total number of states
+        nstates = 1
+        for j in range(N_variables):
+            nstates *= states_per_node[j]
+    
+        next_indices = np.zeros(nstates, dtype=np.int64)
+    
+        # ------------------------------------------------------------------
+        # Mixed-radix multipliers.
+        #
+        # state index =
+        #   state[0] * radix[0] + state[1] * radix[1] + ...
+        #
+        # with radix[j] = product(states_per_node[j+1:]).
+        # ------------------------------------------------------------------
+        radix = np.ones(N_variables, dtype=np.int64)
+    
+        for j in range(N_variables - 2, -1, -1):
+            radix[j] = radix[j + 1] * states_per_node[j + 1]
+    
+        state = np.zeros(N_variables, dtype=np.int64)
+        next_state = np.zeros(N_variables, dtype=np.int64)
+    
+        for i in range(nstates):
+    
+            # --------------------------------------------------------------
+            # Decode integer state index into mixed-radix state vector
+            # --------------------------------------------------------------
+            tmp = i
+    
+            for j in range(N_variables):
+                state[j] = tmp // radix[j]
+                tmp = tmp % radix[j]
+    
+            # --------------------------------------------------------------
+            # Compute synchronous update
+            # --------------------------------------------------------------
+            for j in range(N_variables):
+    
+                regulators = I_array_list[j]
+    
+                if regulators.shape[0] == 0:
+                    next_state[j] = F_array_list[j][0]
+    
+                else:
+                    n_reg = regulators.shape[0]
+    
+                    # Encode regulator states into the lookup-table index.
+                    idx = 0
+    
+                    for k in range(n_reg):
+                        r = regulators[k]
+                        idx = idx * states_per_node[r] + state[r]
+    
+                    next_state[j] = F_array_list[j][idx]
+    
+            # --------------------------------------------------------------
+            # Encode next state back into a mixed-radix integer
+            # --------------------------------------------------------------
+            val = 0
+    
+            for j in range(N_variables):
+                val += next_state[j] * radix[j]
+    
+            next_indices[i] = val
+    
+        return next_indices
+
+class MultistateNetwork(WiringDiagram):
     def __init__(
             self,
             F : Sequence[MultistateFunction | list[int] | np.ndarray],
-            I : Sequence[Sequence[int]] | boolforge.WiringDiagram,
+            I : Sequence[Sequence[int]] | WiringDiagram,
             R : Sequence[int],
             variables : Sequence[str] | None = None
     ):
         if isinstance(F, (str, bytes)) or not isinstance(F, Sequence):
             raise TypeError("F must be a sequence of MultistateFunction objects or truth tables")
-        if isinstance(I, (str, bytes)) or not isinstance(I, (list, Sequence, boolforge.WiringDiagram)):
+        if isinstance(I, (str, bytes)) or not isinstance(I, (list, Sequence, WiringDiagram)):
             raise TypeError("I must be a sequence of sequences of int or a WiringDiagram instance")
-        if isinstance(I, boolforge.WiringDiagram):
+        if isinstance(I, WiringDiagram):
             if variables is not None:
                 warnings.warn("Provided variables ignored; using variables from WiringDiagram.", UserWarning)
             super().__init__(I.I, I.variables)
@@ -359,9 +464,9 @@ class MultistateNetwork(boolforge.WiringDiagram):
         I = []
         # get the regulators for every variable
         for i in range(len(tvec)):
-            regulatee = int(tvec[i][utils.find_all_indices(tvec[i], '[')[0] + 1:utils.find_all_indices(tvec[i], ']')[0]])
-            idx_open = utils.find_all_indices(tvec_rule[i], '[')
-            idx_close = utils.find_all_indices(tvec_rule[i], ']')
+            regulatee = int(tvec[i][find_all_indices(tvec[i], '[')[0] + 1:find_all_indices(tvec[i], ']')[0]])
+            idx_open = find_all_indices(tvec_rule[i], '[')
+            idx_close = find_all_indices(tvec_rule[i], ']')
             dummy = np.sort(np.array(list(map(int, list(set([tvec_rule[i][(begin+1):end] for begin, end in zip(idx_open, idx_close)]))))))
             if regulatee < len(I):
                 I[regulatee] = np.sort(list(set(np.concatenate((I[regulatee], dummy), dtype = int))))
@@ -377,11 +482,11 @@ class MultistateNetwork(boolforge.WiringDiagram):
             f = np.zeros(state_count, int)
             F.append(f)
         for i, line in enumerate(tvec):
-            node_idx = int(tvec[i][utils.find_all_indices(tvec[i], '[')[0] + 1:utils.find_all_indices(tvec[i], ']')[0]])
+            node_idx = int(tvec[i][find_all_indices(tvec[i], '[')[0] + 1:find_all_indices(tvec[i], ']')[0]])
             state = int(line.split(str(node_idx) + ']==')[1].split(' ')[0])
             x = np.zeros(I[node_idx][len(I[node_idx]) - 1] + 1, int)
             for j, _ in enumerate(F[node_idx]):
-                vecj = utils_ms.dec2mix(j, B[I[node_idx]])
+                vecj = dec2mix(j, B[I[node_idx]])
                 for k, I_v in enumerate(I[node_idx]):
                     x[I_v] = vecj[k]
                 if eval(tvec_rule[i]):
@@ -447,7 +552,7 @@ class MultistateNetwork(boolforge.WiringDiagram):
 #             logic={i: d for i, d in enumerate(logic_dicts)},
 #         )
 
-    def to_BooleanNetwork(self) -> boolforge.BooleanNetwork:
+    def to_BooleanNetwork(self) -> BooleanNetwork:
         '''
         Booleanize this multistate network into a BoolForge BooleanNetwork object.
 
@@ -457,31 +562,44 @@ class MultistateNetwork(boolforge.WiringDiagram):
             A booleanized representation of this multistate network as a ``BoolForge``
             BooleanNetwork object.
         '''
+        # calculate the number of bits ( log2(R) ) for each node 
+        n_bits = [ int(radix - 1).bit_length() for radix in self.R ]
         conversion = [ 0 for _ in range(len(self.R) + 1) ]
-        for i, radix in enumerate(self.R):
-            conversion[i + 1] = conversion[i] + radix - 1
+        for i, bits in enumerate(n_bits):
+            conversion[i + 1] = conversion[i] + bits
         
         I_bool = [ -1 for _ in range(conversion[len(conversion) - 1]) ]
         for i, reg_idxs in enumerate(self.I):
             _I = []
-            for multi_idx in reg_idxs:
-                for bool_idx in range(conversion[multi_idx], conversion[multi_idx + 1]):
+            for disc_idx in reg_idxs:
+                for bool_idx in range(conversion[disc_idx], conversion[disc_idx + 1]):
                     _I.append(bool_idx)
             _I = np.array(_I, int)
             for j in range(conversion[i], conversion[i + 1]):
                 I_bool[j] = _I
         
         F_bool = [ -1 for _ in range(len(I_bool)) ]
-        for i_b in range(len(I_bool)):
-            i_m = 0
-            while i_b >= conversion[i_m + 1]:
-                i_m += 1
-            _F = [ 0 for _ in range(2 ** len(I_bool[i_b])) ]
-            radices = self.R[self.I[i_m]]
-            for i_f_m in range(len(self.F[i_m].f)):
-                _F[boolforge.bin2dec(utils_ms.mix2binf(utils_ms.dec2mix(i_f_m, radices), radices))] = int(self.F[i_m][i_f_m] >= conversion[i_m + 1] - i_b)
-            F_bool[i_b]= np.array(_F, int)
-        return boolforge.BooleanNetwork(F_bool, I_bool)
+        for i_disc in range(len(self.R)):
+            reg_idxs = self.I[i_disc]
+            radices = self.R[reg_idxs]
+            reg_widths = [ n_bits[r] for r in reg_idxs ]
+            n_in_bits = sum(reg_widths)
+            node_bool_idxs = list(range(conversion[i_disc], conversion[i_disc + 1]))
+            _F_list = [ [0] * (2 ** n_in_bits) for _ in node_bool_idxs ]
+            for i_f_disc in range(len(self.F[i_disc].f)):
+                reg_states = dec2mix(i_f_disc, radices)
+                bit_vector = []
+                for state, width in zip(reg_states, reg_widths):
+                    bit_vector.extend([ (state >> k) & 1 for k in range(width - 1, -1, -1) ])
+                in_idx = bin2dec(bit_vector)
+                out_state = self.F[i_disc][i_f_disc]
+                out_bits = [ (out_state >> k) & 1 for k in range(n_bits[i_disc] - 1, -1, -1) ]
+                for local_b, bit_val in enumerate(out_bits):
+                    _F_list[local_b][in_idx] = int(bit_val)
+            for local_b, i_b in enumerate(node_bool_idxs):
+                F_bool[i_b] = np.array(_F_list[local_b], int)
+        
+        return BooleanNetwork(F_bool, I_bool)
 
 #     def to_bnet(
 #         self,
@@ -1117,7 +1235,7 @@ class MultistateNetwork(boolforge.WiringDiagram):
         int
             Updated state of the node.
         """
-        return self.F[index].f[utils_ms.mix2dec(regulators, self.F[index].in_rs)].item()
+        return self.F[index].f[mix2dec(regulators, self.F[index].in_rs)].item()
     
     def update_network_synchronously(self, state : Sequence[int]) -> np.ndarray:
         """
@@ -1144,7 +1262,7 @@ class MultistateNetwork(boolforge.WiringDiagram):
     def _update_network_synchronously_unchecked(self, state : np.ndarray) -> np.ndarray:
         next_state = np.zeros(self.N, int)
         for i in range(self.N):
-            next_state[i] = self.F[i].f[utils_ms.mix2dec(state[self.I[i]], self.R[self.I[i]])]
+            next_state[i] = self.F[i].f[mix2dec(state[self.I[i]], self.R[self.I[i]])]
         return next_state
     
 #     def update_network_SDDS(
@@ -1775,7 +1893,7 @@ class MultistateNetwork(boolforge.WiringDiagram):
           as exact proportions of the state space.
         - There is no guarantee that all attractors are found. 
         """
-        rng = utils._coerce_rng(rng)
+        rng = _coerce_rng(rng)
     
         # --- Bookkeeping ---
         dictF: dict[int, int] = {}        # memorized synchronous transitions
@@ -1795,7 +1913,7 @@ class MultistateNetwork(boolforge.WiringDiagram):
             # Initialize state
             if initial_sample_points_empty:
                 x = rng.randint(self.R, size = self.N)
-                xdec = utils_ms.mix2dec(x, self.R)
+                xdec = mix2dec(x, self.R)
                 sampled_points.append(xdec)
             else:
                 if initial_sample_points_are_vectors:
@@ -1804,10 +1922,10 @@ class MultistateNetwork(boolforge.WiringDiagram):
                         raise ValueError(
                             f"Initial state must have length {self.N}, got {x.shape[0]}."
                         )
-                    xdec = utils_ms.mix2dec(x, self.R)
+                    xdec = mix2dec(x, self.R)
                 else:
                     xdec = int(initial_sample_points[sim_idx])
-                    x = np.array(utils.dec2bin(xdec, self.N), dtype=np.uint8)
+                    x = np.array(dec2bin(xdec, self.N), dtype=np.uint8)
     
             visited = {xdec: 0}
             trajectory = [xdec]
@@ -1820,7 +1938,7 @@ class MultistateNetwork(boolforge.WiringDiagram):
                 else:
                     fx = self._update_network_synchronously_unchecked(x)
     
-                    fxdec = utils.bin2dec(fx)
+                    fxdec = bin2dec(fx)
                     dictF[xdec] = fxdec
                     x = fx
     
@@ -1870,16 +1988,23 @@ class MultistateNetwork(boolforge.WiringDiagram):
         }
 
 
-    def compute_synchronous_state_transition_graph(self) -> None:
+    def compute_synchronous_state_transition_graph(self, use_numba : bool = True) -> None:
         """
         Compute the exact synchronous state transition graph (STG)
         """
+        if self.STG is not None:
+            return
+        if __LOADED_NUMBA__ and use_numba:
+            F_list = [np.array(msf.f, dtype=np.uint8) for msf in self.F]
+            I_list = [np.array(regs, dtype=np.int64) for regs in self.I]
+            self.STG = _compute_synchronous_stg_numba_multistate(F_list, I_list, self.R)
+            return
         # this is a slow implementation of this functionality
         # to be improved in the future
         states_dec = list(range(self.R.prod(0, int)))
         next_states = np.zeros_like(states_dec, np.uint32)
         for i in states_dec:
-            next_states[i] = utils_ms.mix2dec(self.update_network_synchronously(utils_ms.dec2mix(i, self.R)), self.R)
+            next_states[i] = mix2dec(self.update_network_synchronously(dec2mix(i, self.R)), self.R)
         self.STG = next_states
 #    
 #         states = utils.get_left_side_of_truth_table(self.N)
@@ -1909,6 +2034,7 @@ class MultistateNetwork(boolforge.WiringDiagram):
 
     def get_attractors_synchronous_exact(
         self,
+        use_numba : bool = True
     ) -> dict:
         """
         Compute all attractors and their exact basin sizes under synchronous updating.
@@ -1938,44 +2064,58 @@ class MultistateNetwork(boolforge.WiringDiagram):
                 The synchronous state transition graph.
         """
         if self.STG is None:
-            self.compute_synchronous_state_transition_graph()
-    
+            self.compute_synchronous_state_transition_graph(use_numba)
+
         attractors = []
-        attractor_id = -np.ones(self.R.prod(0, int), dtype=np.int32)
-        basin_sizes = []
-        n_attr = 0
+        if use_numba and __LOADED_NUMBA__:
+            attractor_id, basin_sizes, cycle_rep, cycle_len, n_attr = (
+                _attractors_functional_graph(self.STG)
+            )
+            for k in range(int(n_attr)):
+                rep = int(cycle_rep[k])
+                L = int(cycle_len[k])
+                cyc = [rep]
+                x = rep
+                for _ in range(L - 1):
+                    x = int(self.STG[x])
+                    cyc.append(x)
+                attractors.append(cyc)
+        else:
+            attractor_id = -np.ones(self.R.prod(0, int), dtype=np.int32)
+            basin_sizes = []
+            n_attr = 0
 
-        for xdec in range(self.R.prod(0, int)):
-            if attractor_id[xdec] != -1:
-                continue
+            for xdec in range(self.R.prod(0, int)):
+                if attractor_id[xdec] != -1:
+                    continue
 
-            cur = xdec
-            queue = [cur]
+                cur = xdec
+                queue = [cur]
 
-            while True:
-                fxdec = int(self.STG[cur])
+                while True:
+                    fxdec = int(self.STG[cur])
 
-                if attractor_id[fxdec] != -1:
-                    idx_attr = attractor_id[fxdec]
-                    basin_sizes[idx_attr] += len(queue)
-                    for q in queue:
-                        attractor_id[q] = idx_attr
-                    break
+                    if attractor_id[fxdec] != -1:
+                        idx_attr = attractor_id[fxdec]
+                        basin_sizes[idx_attr] += len(queue)
+                        for q in queue:
+                            attractor_id[q] = idx_attr
+                        break
 
-                if fxdec in queue:
-                    idx = queue.index(fxdec)
-                    cycle = queue[idx:]
-                    attractors.append(cycle)
-                    basin_sizes.append(len(queue))
-                    for q in queue:
-                        attractor_id[q] = n_attr
-                    n_attr += 1
-                    break
+                    if fxdec in queue:
+                        idx = queue.index(fxdec)
+                        cycle = queue[idx:]
+                        attractors.append(cycle)
+                        basin_sizes.append(len(queue))
+                        for q in queue:
+                            attractor_id[q] = n_attr
+                        n_attr += 1
+                        break
 
-                queue.append(fxdec)
-                cur = fxdec
-    
-        basin_sizes = np.array(basin_sizes, dtype=np.float64) / self.R.prod(0, int)
+                    queue.append(fxdec)
+                    cur = fxdec
+        
+            basin_sizes = np.array(basin_sizes, dtype=np.float64) / self.R.prod(0, int)
     
         return {
             "Attractors": attractors,

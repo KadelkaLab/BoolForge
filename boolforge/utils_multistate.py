@@ -132,12 +132,14 @@ def bin2mix(binary_vector : Sequence[int], radices : Sequence[int]) -> list[int]
     """
     decimal = 0
     for bit in binary_vector:
-        decimal = (decimal << 1) | bit
+        decimal = (decimal << 1) | bool(bit)
     return dec2mix(decimal, radices)
 
-def mix2binf(vector : Sequence[int], radices : Sequence[int]) -> list[int]:
+def mix2binf(vector: Sequence[int], radices: Sequence[int]) -> list[int]:
     """
-    Convert a mixed-radix vector to a formatted binary vector.
+    Convert a mixed-radix vector to a formatted binary vector using a
+    compressed (log2) encoding: each digit is represented using
+    ceil(log2(radix)) bits via standard binary representation.
     
     Parameters
     ----------
@@ -152,22 +154,25 @@ def mix2binf(vector : Sequence[int], radices : Sequence[int]) -> list[int]:
         Binary digits (0 or 1), ordered from most significant bit to least
         significant bit.
     """
+    nbits = [ int(radix - 1).bit_length() for radix in radices ]
     conversion = [ 0 for _ in range(len(radices) + 1) ]
-    for i, radix in enumerate(radices):
-        conversion[i + 1] = conversion[i] + radix - 1
-    binary_vector = [ 0 for _ in range(sum(radices) - len(radices))]
+    for i, radix in enumerate(nbits):
+        conversion[i + 1] = conversion[i] + radix
+    binary_vector = [ 0 for _ in range(conversion[len(conversion) - 1]) ]
     for i in range(len(vector)):
         value = vector[i]
-        idx = int(conversion[i + 1]) - 1
-        while idx >= conversion[i] and value > 0:
-            binary_vector[idx] += 1
-            idx -= 1
-            value -= 1
+        width = nbits[i]
+        for bit_pos in range(width):
+            # MSB-first: leftmost bit within the group is the highest-order bit.
+            binary_vector[conversion[i] + bit_pos] = (value >> (width - 1 - bit_pos)) & 1
     return binary_vector
 
-def binf2mix(binary_vector : Sequence[int], radices : Sequence[int]) -> list[int]:
+
+def binf2mix(binary_vector: Sequence[int], radices: Sequence[int]) -> list[int]:
     """
-    Convert a formatted binary vector to a mixed-radix vector.
+    Convert a formatted binary vector to a mixed-radix vector using a
+    compressed (log2) encoding: each digit is decoded from
+    ceil(log2(radix)) bits via standard binary representation.
     
     Parameters
     ----------
@@ -180,23 +185,22 @@ def binf2mix(binary_vector : Sequence[int], radices : Sequence[int]) -> list[int
     Returns
     -------
     list of int
-        Digits ordered from least significant digit to most significant digit.
+        Digits ordered from least significant digit to most significant digit,
+        or None if any decoded digit falls outside its valid range
+        [0, radix - 1] (this can occur when radix is not a power of 2, since
+        ceil(log2(radix)) bits can represent more than radix values).
     """
+    nbits = [ int(radix - 1).bit_length() for radix in radices ]
     conversion = [ 0 for _ in range(len(radices) + 1) ]
-    for i, radix in enumerate(radices):
-        conversion[i + 1] = conversion[i] + radix - 1
+    for i, radix in enumerate(nbits):
+        conversion[i + 1] = conversion[i] + radix
     vector = [ 0 for _ in range(len(radices)) ]
     for i in range(len(radices)):
         value = 0
-        break_flag = False
-        for group_rev_idx in range(conversion[i], conversion[i + 1]):
-            idx = conversion[i + 1] - group_rev_idx - 1 + conversion[i]
-            if binary_vector[idx] > 0:
-                if break_flag:
-                    return None
-                value += 1
-            else: 
-                break_flag = True
+        for bit_pos in range(nbits[i]):
+            value = (value << 1) | (1 if binary_vector[conversion[i] + bit_pos] > 0 else 0)
+        if value >= radices[i]:
+            return None
         vector[i] = value
     return vector
 
