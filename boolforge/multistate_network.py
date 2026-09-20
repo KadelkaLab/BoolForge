@@ -9,7 +9,7 @@ import math
 from .boolean_network.core import BooleanNetwork, WiringDiagram
 from .utils import find_all_indices, bin2dec, dec2bin, _coerce_rng
 from .utils_multistate import dec2mix, mix2dec
-from .multistate_function_to_be_separated import MultistateFunction
+from .multistate_function.core import MultistateFunction
 
 from .backend._numba import __LOADED_NUMBA__
 if __LOADED_NUMBA__:
