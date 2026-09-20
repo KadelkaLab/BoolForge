@@ -2363,7 +2363,6 @@ def random_edge_list(
     return edge_list
 
 def random_non_degenerated_ms_function(
-        n : int,
         r : int,
         R : Sequence[int],
         *,
@@ -2391,7 +2390,7 @@ def random_non_degenerated_ms_function(
     while True:
         f = np.array(np.floor(rng.random(np.prod(R)) * r), int)
         #if not is_ms_degenerated(f, R):
-        return MultistateFunction(f, r, R, n)
+        return MultistateFunction(f, r, R)
 
 def random_linear_ms_function(
         n : int,
@@ -2542,6 +2541,6 @@ def random_MSN(N, in_degree = 2, base = 3, STRONGLY_CONNECTED = True, in_degree_
         if LINEAR:
             F.append(random_linear_ms_function(ns[i], B[i], B[I[i]]))
         else:
-            F.append(random_non_degenerated_ms_function(ns[i], B[i], B[I[i]]))
+            F.append(random_non_degenerated_ms_function(B[i], B[I[i]]))
     
     return MultistateNetwork(F,I,B)
