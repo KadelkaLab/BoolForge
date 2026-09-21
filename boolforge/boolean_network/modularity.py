@@ -72,7 +72,7 @@ class BooleanNetworkModularityMixin:
                             pos_in_module[regulator]
                         except KeyError:
                             try:
-                                input_nodes[regulator]
+                                input_nodes[regulator] #has the regulator already been added because it regulates another module node
                             except KeyError:
                                 input_nodes.update({regulator:n_nodes_in_module+count})
                                 count+=1

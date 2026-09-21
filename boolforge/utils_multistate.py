@@ -223,7 +223,8 @@ def get_left_side_of_truth_table_multistate(R : Sequence[int]) -> np.ndarray:
     if R in left_side_of_truth_tables:
         left_side_of_truth_table = left_side_of_truth_tables[R]
     else:
-        left_side_of_truth_table = np.arange(R, dtype=np.uint64)[:, None]
+        #can probably be sped up a ton
+        left_side_of_truth_table = np.array(list(map(lambda x: dec2mix(x,R),range(int(np.prod(R))))))
         left_side_of_truth_tables[R] = left_side_of_truth_table
     return left_side_of_truth_table
 
