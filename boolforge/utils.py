@@ -630,7 +630,7 @@ def get_minimal_trap_space(states: Sequence[int], N: int) -> np.ndarray :
         if varying & bit:
             trap_space[i] = -1   # free
         else:
-            trap_space[i] = (ref >> i) & 1
+            trap_space[i] = (ref >> (N-i-1)) & 1
     return trap_space
 
 
