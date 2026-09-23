@@ -610,7 +610,7 @@ class BooleanNetworkDynamicsAsyncMixin:
         rows_Q = []
         cols_Q = []
         vals_Q = []
-        transient_to_absorbing_matrix = np.zeros((n_transients, n_terminal_sccs), dtype=np.float64)
+        transient_to_absorbing_matrix = np.zeros((n_transients, n_terminal_sccs), dtype=np.float32)
 
         terminal_scc_lookup = {}
         for a, states in enumerate(terminal_sccs):
@@ -636,9 +636,9 @@ class BooleanNetworkDynamicsAsyncMixin:
         Q = csr_matrix(
             (vals_Q, (rows_Q, cols_Q)),
             shape=(n_transients, n_transients),
-            dtype=np.float64
+            dtype=np.float32
         )
-        uninverted_fundamental_matrix = identity(n_transients, dtype=np.float64, format='csr') - Q
+        uninverted_fundamental_matrix = identity(n_transients, dtype=np.float32, format='csr') - Q
 
         return uninverted_fundamental_matrix, transient_to_absorbing_matrix
 
@@ -647,7 +647,8 @@ class BooleanNetworkDynamicsAsyncMixin:
     def _gmres(A: csr_matrix, B: np.ndarray, probability_cutoff: bool) -> np.ndarray:
         """
         Solve ``A x = b`` column-by-column for each column ``b`` of `B` using
-        GMRES.
+        GMRES, trying single precision first and falling back to double
+        precision if a column fails to converge.
 
         Parameters
         ----------
@@ -668,22 +669,55 @@ class BooleanNetworkDynamicsAsyncMixin:
         numpy.ndarray
             Array of shape ``(n, m)`` where column ``a`` is the solution to
             ``A x = B[:, a]``.
+
+        Notes
+        -----
+        Columns are solved in float32, which is faster and uses half the
+        memory, until the first column that fails to converge. In float32
+        the attainable residual is limited to roughly
+        ``eps32 * ||A|| * ||x||``, which can exceed the relative
+        tolerance ``1e-5 * ||b||`` when a large basin drains into an
+        attractor through a few low-probability transitions. The failing
+        column is re-solved in float64, warm-started from the float32
+        iterate, and all remaining columns are solved directly in float64.
+        Because every column shares `A`, one failure is a strong sign that
+        others would fail too, and a failed float32 attempt can cost up to
+        the full iteration budget. The float64 copy of `A` is created at
+        most once, and only if some column needs it.
         """
-        dims = (np.shape(A)[1], np.shape(B)[1])    
-        out_matrix = np.zeros(dims, dtype=np.float64)
-        if probability_cutoff:
-            cutoff = 1.0
-        else:
-            cutoff = None
-        for a in range(dims[1]):
-            b = B[:, a]
-            x, info = gmres(A,b,atol=1e-10)
+        n, m = np.shape(A)[1], np.shape(B)[1]
+        out_matrix = np.zeros((n, m), dtype=np.float64)
+        cutoff = 1.0 if probability_cutoff else None
+
+        A32 = A if A.dtype == np.float32 else A.astype(np.float32)
+        A64 = None  # built lazily on first fallback
+
+        for a in range(m):
+            b = np.asarray(B[:, a]).ravel()
+
+            if A64 is None:
+                x, info = gmres(A32, b.astype(np.float32), atol=1e-10)
+                if info != 0:
+                    # Switch to float64 for this and every remaining column.
+                    # Warm-start this column from the float32 iterate.
+                    A64 = A.astype(np.float64)
+                    x, info = gmres(
+                        A64,
+                        b.astype(np.float64),
+                        x0=x.astype(np.float64),
+                        atol=1e-10,
+                    )
+            else:
+                x, info = gmres(A64, b.astype(np.float64), atol=1e-10)
+
             if info != 0:
                 raise RuntimeError(
-                    f"GMRES failed to converge for column {a} (info={info})."
+                    f"GMRES failed to converge for column {a} in float64 "
+                    f"(info={info})."
                 )
-            x = np.clip(x.astype(np.float64), 0.0, cutoff)
-            out_matrix[:,a] = x
+
+            out_matrix[:, a] = np.clip(x.astype(np.float64), 0.0, cutoff)
+
         if probability_cutoff:
             row_sums = out_matrix.sum(axis=1, keepdims=True)
             out_matrix /= row_sums
@@ -833,7 +867,7 @@ class BooleanNetworkDynamicsAsyncMixin:
         mean_absorption_times_to_specific_sccs = np.full(np.shape(absorption_probs), np.nan, dtype=np.float32)
         if len(transient_states)>0:
             A, _ = self._build_absorption_system()
-            cap_N_squared_R = self._gmres(A, relavant_probs.astype(np.float64), False)
+            cap_N_squared_R = self._gmres(A, relavant_probs, False)
             mean_absorption_times_to_any_scc[transient_states] = cap_N_squared_R.sum(axis=1)
             mean_absorption_times_to_specific_sccs[transient_states] = np.divide(
                 cap_N_squared_R, relavant_probs,
