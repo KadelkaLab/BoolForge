@@ -610,7 +610,7 @@ class BooleanNetworkDynamicsAsyncMixin:
         rows_Q = []
         cols_Q = []
         vals_Q = []
-        transient_to_absorbing_matrix = np.zeros((n_transients, n_terminal_sccs), dtype=np.float32)
+        transient_to_absorbing_matrix = np.zeros((n_transients, n_terminal_sccs), dtype=np.float64)
 
         terminal_scc_lookup = {}
         for a, states in enumerate(terminal_sccs):
@@ -636,9 +636,9 @@ class BooleanNetworkDynamicsAsyncMixin:
         Q = csr_matrix(
             (vals_Q, (rows_Q, cols_Q)),
             shape=(n_transients, n_transients),
-            dtype=np.float32
+            dtype=np.float64
         )
-        uninverted_fundamental_matrix = identity(n_transients, dtype=np.float32, format='csr') - Q
+        uninverted_fundamental_matrix = identity(n_transients, dtype=np.float64, format='csr') - Q
 
         return uninverted_fundamental_matrix, transient_to_absorbing_matrix
 
@@ -833,7 +833,7 @@ class BooleanNetworkDynamicsAsyncMixin:
         mean_absorption_times_to_specific_sccs = np.full(np.shape(absorption_probs), np.nan, dtype=np.float32)
         if len(transient_states)>0:
             A, _ = self._build_absorption_system()
-            cap_N_squared_R = self._gmres(A, relavant_probs, False)
+            cap_N_squared_R = self._gmres(A, relavant_probs.astype(np.float64), False)
             mean_absorption_times_to_any_scc[transient_states] = cap_N_squared_R.sum(axis=1)
             mean_absorption_times_to_specific_sccs[transient_states] = np.divide(
                 cap_N_squared_R, relavant_probs,
