@@ -686,6 +686,19 @@ class BooleanNetworkDynamicsAsyncMixin:
         return self.get_absorption_probabilities_stochastic_exact(
             update_scheme='asynchronous'
         )
+    
+    
+    def get_attractors_with_biobalm(self) -> dict:
+        """
+        Transforms the network into primes and returns a modified output from biobalm.
+        """
+        return None
+    
+    def get_attractors_with_pystablemotifs(self) -> dict:
+        """
+        Transforms the network into primes and returns a modified output from pystablemotifs.
+        """
+        return None
 
     
     def get_steady_states_asynchronous(

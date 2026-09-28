@@ -69,4 +69,14 @@ class BooleanFunctionInteroperabilityMixin:
         cana_boolean_node = utils._require_cana()
         return cana_boolean_node.BooleanNode(k=self.n, outputs=self.f)
 
-
+    def to_prime(self) -> list[list[dict]]:
+        """
+        Add xxx
+        """
+        combinations = [[] for _ in range(2)]
+        for inputs,output in zip(utils.get_left_side_of_truth_table(self.n),
+                                 self.f):
+            combinations[int(output)].append(
+                {str(k): int(v) for k, v in zip(self.variables, inputs)}
+            )
+        return combinations
