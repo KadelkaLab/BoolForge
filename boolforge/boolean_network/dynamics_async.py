@@ -167,7 +167,7 @@ class BooleanNetworkDynamicsAsyncMixin:
             )
 
 
-    def get_asynchronous_transition_matrix(self) -> csr_matrix:
+    def get_asynchronous_transition_matrix(self, double_precision=False) -> csr_matrix:
         """
         Construct and return the exact asynchronous state transition graph.
         
@@ -195,7 +195,7 @@ class BooleanNetworkDynamicsAsyncMixin:
         STG = csr_matrix(
             (data, (rows, cols)),
             shape=((1 << self.N), (1 << self.N)),
-            dtype=np.float32
+            dtype=np.float64 if double_precision else np.float32
         )
 
         self._set_property('STG', STG, 
@@ -696,7 +696,7 @@ class BooleanNetworkDynamicsAsyncMixin:
             b = np.asarray(B[:, a]).ravel()
 
             if A64 is None:
-                x, info = gmres(A32, b.astype(np.float32), atol=1e-10)
+                x, info = gmres(A32, b.astype(np.float32), atol=1e-10, restart=50)
                 if info != 0:
                     # Switch to float64 for this and every remaining column.
                     # Warm-start this column from the float32 iterate.
@@ -706,9 +706,10 @@ class BooleanNetworkDynamicsAsyncMixin:
                         b.astype(np.float64),
                         x0=x.astype(np.float64),
                         atol=1e-10,
+                        restart=50
                     )
             else:
-                x, info = gmres(A64, b.astype(np.float64), atol=1e-10)
+                x, info = gmres(A64, b.astype(np.float64), atol=1e-10, restart=50)
 
             if info != 0:
                 raise RuntimeError(
