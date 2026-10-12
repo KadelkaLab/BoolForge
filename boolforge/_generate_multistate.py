@@ -2477,7 +2477,7 @@ def random_MSN(N, in_degree = 2, base = 3, STRONGLY_CONNECTED = True, in_degree_
                 ns = np.random.poisson(in_degree, N)
                 ns[ns == 0] = 1
                 ns[ns > N - int(NO_SELF_REGULATION)] = N - int(NO_SELF_REGULATION)
-            edges_wiring_diagram = random_edge_list(N, ns, NO_SELF_REGULATION)
+            edges_wiring_diagram = random_edge_list(N, ns, not NO_SELF_REGULATION)
             if STRONGLY_CONNECTED:
                 G = nx.from_edgelist(edges_wiring_diagram, create_using = nx.MultiDiGraph())
                 if not nx.is_strongly_connected(G):
