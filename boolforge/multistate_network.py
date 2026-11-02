@@ -2047,6 +2047,12 @@ class MultistateNetwork(WiringDiagram):
         This computation requires memory and time proportional to the network size and is
         intended for small-to-moderate networks only.
     
+        Parameters
+        ----------
+        use_numba : bool, optional
+            If True (default) and Numba is available, use a compiled kernel for
+            attractor detection.
+            
         Returns
         -------
         dict
@@ -2064,8 +2070,8 @@ class MultistateNetwork(WiringDiagram):
                 The synchronous state transition graph.
         """
         if self.STG is None:
-            self.compute_synchronous_state_transition_graph(use_numba)
-
+            self.compute_synchronous_state_transition_graph(use_numba=use_numba)
+        
         attractors = []
         if use_numba and __LOADED_NUMBA__:
             attractor_id, basin_sizes, cycle_rep, cycle_len, n_attr = (
