@@ -688,18 +688,50 @@ class BooleanNetworkDynamicsAsyncMixin:
         )
     
     
-    def get_attractors_with_biobalm(self) -> dict:
+    def get_attractors_with_biobalm(self):
         """
         Transforms the network into primes and returns a modified output from biobalm.
         """
-        return None
+        try:
+            import biobalm
+        except ImportError as e:
+            raise ImportError(
+                "The 'biobalm' package is required for get_attractors_with_biobalm(self)."
+            ) from e
+
+        logical_rules = self.to_bnet(as_polynomial = False)
+        sd = biobalm.SuccessionDiagram.from_rules(logical_rules, format='bnet')
+        sd.build()
+        # return sd.expanded_attractor_seeds()
+        print(sd.summary())
+        return sd
     
-    def get_attractors_with_pystablemotifs(self) -> dict:
+    def get_attractors_with_pystablemotifs(self):
         """
         Transforms the network into primes and returns a modified output from pystablemotifs.
         """
-        return None
+        try:
+            import pystablemotifs as sm
+        except ImportError as e:
+            raise ImportError(
+                "The 'pystablemotifs' package is required for get_attractors_with_pystablemotifs(self)."
+            ) from e
 
+        logical_rules = self.to_bnet(as_polynomial = False)
+        primes = sm.format.create_primes(logical_rules)
+        ar = sm.AttractorRepertoire.from_primes(primes)
+        ar.summary()
+        return ar
+
+    def get_stable_motifs_with_pystablemotifs(self) -> list:
+        ar = self.get_attractors_with_pystablemotifs()
+
+        final = []
+        for node_id, reduction in ar.succession_diagram.motif_reduction_dict.items():
+            if reduction.terminal == 'yes':
+                if reduction.logically_fixed_nodes not in final:
+                    final.append(reduction.logically_fixed_nodes)
+        return final
     
     def get_steady_states_asynchronous(
         self,
