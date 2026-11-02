@@ -5,18 +5,18 @@ import numpy as np
 from .. import utils_multistate
 from typing import Sequence
 
-from .analysis import MultistateFunctionAnalysisMixin
-from .canalization import MultistateFunctionCanalizationMixin
+#from .analysis import MultistateFunctionAnalysisMixin
+#from .canalization import MultistateFunctionCanalizationMixin
 from .collective_canalization import MultistateFunctionCollectiveCanalizationMixin
-from .conversions import MultistateFunctionConversionsMixin
-from .interoperability import MultistateFunctionInteroperabilityMixin
+#from .conversions import MultistateFunctionConversionsMixin
+#from .interoperability import MultistateFunctionInteroperabilityMixin
 
 class MultistateFunction(
-        MultistateFunctionAnalysisMixin,
-        MultistateFunctionCanalizationMixin,
+        #MultistateFunctionAnalysisMixin,
+        #MultistateFunctionCanalizationMixin,
         MultistateFunctionCollectiveCanalizationMixin,
-        MultistateFunctionConversionsMixin,
-        MultistateFunctionInteroperabilityMixin,
+        #MultistateFunctionConversionsMixin,
+        #MultistateFunctionInteroperabilityMixin,
         ):
     """A multistate function.
 

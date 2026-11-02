@@ -36,6 +36,20 @@ from .modularity import (
 
 from .bio_models import get_bio_models_from_repository
 
+from .utils_multistate import (
+    mix2dec, dec2mix,
+    mix2bin, bin2mix,
+    mix2binf, binf2mix,
+)
+
+from .multistate_network import (
+    MultistateFunction,
+    MultistateNetwork,
+)
+from ._generate_multistate import (
+    random_MSN
+)
+
 # Version
 try:
     from ._version import __version__
@@ -65,5 +79,9 @@ __all__ = [
     
     "compress_trajectories",
     "product_of_trajectories",
-    "plot_trajectory"
+    "plot_trajectory",
+
+    "MultistateFunction",
+    "MultistateNetwork",
+    "random_MSN"
 ]
