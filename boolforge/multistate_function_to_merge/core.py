@@ -84,48 +84,132 @@ class MultistateFunction(
     Input and output states are represented by consecutive nonnegative
     integers beginning at zero.
     """
-    def __init__(
-            self,
-            f : Sequence[int] | str,
-            r : int,
-            r_inputs : Sequence[int],
-            variables : Sequence[str] | None = None,
-            name : str = ""):
-        self.name = name
-        self.r = r
-        self.r_inputs = np.array(r_inputs,dtype=int)
-        if not isinstance(r, (int, np.int64)):
-            raise ValueError(f"Radix r must be an integer (is {type(r)})")
-        if not r > 1:
-            raise ValueError(f"Radix r has a minimum value of 2. Received {r}.")
-        if not min(r_inputs) > 1:
-            raise ValueError(f"The radix of each input must be 2 or greater. Received {r_inputs}.")
-        if isinstance(f, str):
-            ## f, r, self.variables = utils.from_from_expression(f)
-            raise NotImplementedError("Creating multistate function from string in the constructor is not permissible (yet)")
+
+def __init__(
+        self,
+        f: Sequence[int] | np.ndarray | str,
+        variables: Sequence[str] | np.ndarray | None = None,
+        name: str = "",
+        r: int = 2,
+        r_inputs: Sequence[int] | np.ndarray | None = None,
+):
+    """
+    Initialize a finite-state discrete function.
+
+    Parameters
+    ----------
+    f : Sequence[int] | np.ndarray | str
+        Truth table in lexicographic order, or a Boolean expression string.
+    variables : Sequence[str] | np.ndarray | None, optional
+        Input variable names. Defaults to x0, x1, ...
+    name : str, optional
+        Name of the function. Default is "".
+    r : int, optional
+        Number of output states (2 to 255). Default is 2.
+    r_inputs : Sequence[int] | np.ndarray | None, optional
+        Number of states for each input (2 to 255).
+        If None, all inputs have r states and their number is inferred
+        from the truth table length.
+    """
+    self.name = name
+
+    # Validate output cardinality.
+    if (isinstance(r, (bool, np.bool_))
+            or not isinstance(r, (int, np.integer))
+            or not 2 <= r <= 255):
+        raise ValueError("r must be an integer between 2 and 255")
+    self.r = int(r)
+
+    # Validate input cardinalities.
+    if r_inputs is None:
+        self.r_inputs = None
+    else:
+        if (not isinstance(r_inputs, (Sequence, np.ndarray))
+                or np.ndim(r_inputs) != 1
+                or any(
+                    isinstance(x, (bool, np.bool_))
+                    or not isinstance(x, (int, np.integer))
+                    or not 2 <= x <= 255
+                    for x in r_inputs
+                )):
+            raise ValueError(
+                "r_inputs must be a sequence of integers between 2 and 255"
+            )
+        self.r_inputs = np.asarray(r_inputs, dtype=int)
+
+    # Identify Boolean functions.
+    self.is_boolean = (
+        self.r == 2
+        and (self.r_inputs is None or np.all(self.r_inputs == 2))
+    )
+
+    if isinstance(f, str):
+        if not self.is_boolean:
+            raise NotImplementedError(
+                "Expression parsing is only supported for Boolean functions"
+            )
+
+        f, self.variables = f_from_expression(f)
+        self.n = len(self.variables)
+        self.r_inputs = np.full(self.n, 2, dtype=int)
+
+    else:
+        if (not isinstance(f, (Sequence, np.ndarray))
+                or isinstance(f, (str, bytes))
+                or np.ndim(f) != 1
+                or len(f) == 0):
+            raise ValueError("f must be a nonempty 1D sequence")
+
+        if self.r_inputs is None:
+            # Infer n from len(f) = r**n.
+            size = len(f)
+            n = 0
+            while size > 1 and size % self.r == 0:
+                size //= self.r
+                n += 1
+
+            if size != 1:
+                raise ValueError(
+                    "len(f) must be a power of r when r_inputs is None"
+                )
+
+            self.n = n
+            self.r_inputs = np.full(n, self.r, dtype=int)
+
         else:
-            if not isinstance(f, (list, np.ndarray)):
-                raise ValueError("f must be a list or numpy array of integers")
-            if not len(f) > 0:
-                raise ValueError("f cannot be empty")
-            self.n = len(r_inputs)
+            self.n = len(self.r_inputs)
+            if len(f) != int(np.prod(self.r_inputs.astype(object))):
+                raise ValueError(
+                    "len(f) must equal the product of r_inputs"
+                )
 
-            if not len(f) == np.prod(r_inputs):
-                raise ValueError(f"f must be of size prod_sum(r_inputs) = {np.prod(r_inputs)}")
-            if variables is None:
-                self.variables = np.array([f"x{i}" for i in range(self.n)])
-            else:
-                self.variables = np.asarray(variables, str)
-                if self.variables.ndim != 1:
-                    raise ValueError("variables must be a 1D array of strings")
-                if len(self.variables) != self.n:
-                    raise ValueError(f"variables must have length {self.n}, got {len(self.variables)}")
-        self.f = np.array(f, np.uint8)
-        
-        if not np.all(self.f < self.r):
-            raise ValueError(f"f must contain only values from 0 to {self.r-1}.")
+        if variables is None:
+            self.variables = np.array(
+                [f"x{i}" for i in range(self.n)]
+            )
+        else:
+            self.variables = np.asarray(variables, dtype=str)
+            if self.variables.ndim != 1 or len(self.variables) != self.n:
+                raise ValueError(
+                    f"variables must be a 1D sequence of length {self.n}"
+                )
 
-        self.properties = {}
+    # Validate truth table before converting to uint8.
+    raw_f = np.asarray(f)
+
+    if (raw_f.ndim != 1
+            or any(
+                isinstance(x, (bool, np.bool_))
+                or not isinstance(x, (int, np.integer))
+                or not 0 <= x < self.r
+                for x in raw_f
+            )):
+        raise ValueError(
+            f"f must contain only integers from 0 to {self.r - 1}"
+        )
+
+    self.f = np.asarray(raw_f, dtype=np.uint8)
+    self.properties = {}
 
 
     ## Magic methods

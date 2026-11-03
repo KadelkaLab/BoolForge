@@ -7,7 +7,7 @@ from ._numba import njit, __LOADED_NUMBA__
 
 if __LOADED_NUMBA__:
     @njit
-    def _build_async_transition_coo(
+    def _build_async_transition_coo_boolean(
         F_array_list,
         I_array_list,
         N

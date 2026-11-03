@@ -40,7 +40,7 @@ def get_layer_structure_from_canalized_outputs(
     return layer_structure
 
 
-class BooleanFunctionCanalizationMixin:
+class FunctionCanalizationMixin:
     @property
     def canalizing(self) -> bool:
         """Check whether the Boolean function is degenerate."""
@@ -75,20 +75,23 @@ class BooleanFunctionCanalizationMixin:
         bool
             ``True`` if the Boolean function is canalizing, ``False`` otherwise.
         """
-        indices = np.arange(2**self.n, dtype=np.uint32)
-    
-        for i in range(self.n):
-            mask = 1 << i
-            bit_is_0 = (indices & mask) == 0
-            bit_is_1 = ~bit_is_0
-    
-            f0 = self.f[bit_is_0]
-            f1 = self.f[bit_is_1]
-    
-            if np.all(f0 == f0[0]) or np.all(f1 == f1[0]):
-                return True
-    
-        return False
+        if self.is_boolean:
+            indices = np.arange(2**self.n, dtype=np.uint32)
+        
+            for i in range(self.n):
+                mask = 1 << i
+                bit_is_0 = (indices & mask) == 0
+                bit_is_1 = ~bit_is_0
+        
+                f0 = self.f[bit_is_0]
+                f1 = self.f[bit_is_1]
+        
+                if np.all(f0 == f0[0]) or np.all(f1 == f1[0]):
+                    return True
+        
+            return False
+        else:
+            raise NotImplementedError("Canalization analysis is currently only implemented for Boolean functions.")
 
 
     def is_k_canalizing(self, k: int) -> bool:

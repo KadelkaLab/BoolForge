@@ -6,7 +6,8 @@ import numpy as np
 from ._numba import njit
 
 @njit
-def _is_degenerate_numba(f : np.ndarray, n : int) -> bool:
+def _is_degenerate_numba(f : np.ndarray, 
+                         n : int) -> bool:
     """
     Check whether a Boolean function contains a non-essential variable.
 

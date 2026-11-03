@@ -28,7 +28,7 @@ Example
 
 import numpy as np
 
-from ..boolean_function import BooleanFunction
+from ..function import BooleanFunction
 from .. import utils
 
 def random_function_with_bias(

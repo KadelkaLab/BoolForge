@@ -29,7 +29,7 @@ Example
 import math
 import numpy as np
 
-from ..boolean_function import BooleanFunction
+from ..function import BooleanFunction
 from .. import utils
 
 from .functions import random_function_with_bias

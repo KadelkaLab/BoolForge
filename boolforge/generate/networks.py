@@ -29,7 +29,7 @@ Example
 import numpy as np
 import networkx as nx
 
-from ..boolean_function import BooleanFunction
+from ..function import BooleanFunction
 from ..boolean_network import BooleanNetwork
 from ..wiring_diagram import WiringDiagram
 from .. import utils

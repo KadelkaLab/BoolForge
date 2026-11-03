@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-r"""
+"""
 This module defines the :class:`~boolforge.BooleanNetwork` class, which provides
 a high-level framework for modeling, simulating, and analyzing Boolean networks.
 
 A :class:`BooleanNetwork` represents a discrete dynamical system
-:math:`F = (f_1, \ldots, f_N)` composed of multiple
+:math:`F = (f_1, \\ldots, f_N)` composed of multiple
 :class:`~boolforge.BooleanFunction` objects as update rules. The class includes
 methods for constructing state transition graphs, identifying attractors,
 computing robustness and sensitivity measures, and exporting truth tables.

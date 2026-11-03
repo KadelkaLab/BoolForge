@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 from .. import utils
 from ..wiring_diagram import WiringDiagram
-from ..boolean_function import f_from_expression
+from ..function import f_from_expression
 
 class BooleanNetworkInteroperabilityMixin:
     @classmethod

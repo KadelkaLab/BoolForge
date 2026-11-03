@@ -28,7 +28,7 @@ Example
 
 import numpy as np
 
-from ..boolean_function import BooleanFunction
+from ..function import BooleanFunction
 from .. import utils
 
 from .canalization import random_k_canalizing_function_with_specific_layer_structure

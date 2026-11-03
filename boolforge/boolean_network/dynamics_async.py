@@ -6,7 +6,6 @@ Created on Wed May 27 00:52:32 2026
 @author: ckadelka
 """
 
-
 from collections.abc import Sequence
 import numpy as np
 from scipy.stats import entropy
@@ -18,7 +17,7 @@ from .. import utils
 
 from ..backend._numba import _numba_required, __LOADED_NUMBA__
 if __LOADED_NUMBA__:
-    from ..backend.dynamics_async import _build_async_transition_coo, _build_sdds_transition_csr, _build_sdds_transition_csr_with_endpoint_probabilities
+    from ..backend.dynamics_async import _build_async_transition_coo_boolean, _build_sdds_transition_csr, _build_sdds_transition_csr_with_endpoint_probabilities
 
 
 
@@ -191,7 +190,7 @@ class BooleanNetworkDynamicsAsyncMixin:
         I_list = [np.asarray(regs, dtype=np.int32) for regs in self.I]
 
         # fast direct CSR construction
-        rows, cols, data = _build_async_transition_coo(F_list,I_list,self.N)
+        rows, cols, data = _build_async_transition_coo_boolean(F_list,I_list,self.N)
         STG = csr_matrix(
             (data, (rows, cols)),
             shape=((1 << self.N), (1 << self.N)),

@@ -1,5 +1,6 @@
 # Core public classes
-from .boolean_function import (
+from .function import (
+    Function,
     BooleanFunction, 
     display_truth_table,
     get_layer_structure_from_canalized_outputs
@@ -42,11 +43,11 @@ from .utils_multistate import (
     mix2binf, binf2mix,
 )
 
-from .multistate_network import (
+from .multistate_network_to_merge import (
     MultistateFunction,
     MultistateNetwork,
 )
-from ._generate_multistate import (
+from .generate_multistate_to_merge import (
     random_MSN
 )
 
@@ -63,6 +64,7 @@ __all__ = [
     "hamming_weight_to_ncf_layer_structure",
     "get_shannon_entropy",
     "BooleanFunction",
+    "Function",
     "display_truth_table",
     "get_layer_structure_from_canalized_outputs",
     "BooleanNetwork",

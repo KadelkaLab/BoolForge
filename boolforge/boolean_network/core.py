@@ -15,7 +15,7 @@ from copy import deepcopy
 import numpy as np
 
 from ..utils import get_left_side_of_truth_table
-from ..boolean_function import BooleanFunction
+from ..function import BooleanFunction
 from ..wiring_diagram import WiringDiagram
     
 from .interoperability import BooleanNetworkInteroperabilityMixin
