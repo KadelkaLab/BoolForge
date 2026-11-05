@@ -1,29 +1,33 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-This module provides functions for generating random Boolean functions and
-Boolean networks with specified structural and dynamical properties.
+Random generation of discrete functions and networks.
 
-The :mod:`~boolforge.generate` module enables the systematic creation of
-Boolean functions and networks that satisfy particular constraints, such as
-specified canalization depth, sensitivity range, bias, or connectivity.
-Generated instances can be used for statistical analysis, benchmarking, or
+This module provides routines for generating random Boolean and multistate
+functions and networks with specified structural and dynamical properties.
+
+Functions can be generated with constraints on their output distribution,
+canalizing structure, essential variables, and other properties. Network
+generation additionally supports constraints on connectivity and update
+rules. These routines facilitate statistical analysis, benchmarking, and
 simulation studies.
 
-Several generation routines leverage Numba acceleration for efficient sampling
-and evaluation of large function spaces. While Numba is **recommended** to
-achieve near-native performance, it is **not required** for functionality; all
-functions have pure Python fallbacks.
+Boolean generation is fully supported, while multistate functionality is
+being incorporated into the unified :class:`~boolforge.Function` architecture.
 
-This module complements :mod:`~boolforge.boolean_function` and
-:mod:`~boolforge.boolean_network` by facilitating reproducible generation of
-synthetic test cases and large ensembles of random networks.
+Selected generation routines support optional Numba-based just-in-time
+(JIT) acceleration. All functionality remains available without Numba,
+although performance may be reduced.
 
-Example
--------
->>> import boolforge
->>> boolforge.random_function(n=3)
->>> boolforge.random_network(N=5, n=2)
+This module complements :mod:`~boolforge.function` and
+:mod:`~boolforge.network` by providing reproducible generation
+of synthetic functions and networks.
+
+Examples
+--------
+>>> import boolforge as bf
+>>> f = bf.random_function(n=3)
+>>> bn = bf.random_network(N=5, n=2)
 """
 
 from .dispatch import random_function

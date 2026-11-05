@@ -197,7 +197,7 @@ class MultistateFunctionCanalizationMixin:
 
             return False
             
-            
+    
 
         def is_k_canalizing(self, k: int, segments_only: bool = False) -> bool:
             """

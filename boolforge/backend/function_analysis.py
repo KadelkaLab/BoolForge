@@ -45,7 +45,8 @@ def _is_degenerate_numba(f : np.ndarray,
             return True  # found non-essential variable
     return False
 
-def _get_essential_variables_numba(f : np.ndarray, n : int) -> bool:
+@njit
+def _get_essential_variables_numba(f : np.ndarray, n : int) -> np.ndarray:
     """
     Check whether a Boolean function contains a non-essential variable.
 
@@ -66,7 +67,7 @@ def _get_essential_variables_numba(f : np.ndarray, n : int) -> bool:
     """
     
     N = 1 << n  # 2**n
-    is_essential = np.zeros(n, dtype=bool)
+    is_essential = np.zeros(n, dtype=np.bool_)
     for i in range(n):
         stride = 1 << (n - 1 - i)
         step = stride << 1  # 2 * stride

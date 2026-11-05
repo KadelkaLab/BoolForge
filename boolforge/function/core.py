@@ -3,22 +3,22 @@
 import numpy as np
 from typing import Sequence
 
-from .. import utils
+from .. import utils, utils_multistate
     
-from .analysis import BooleanFunctionAnalysisMixin
+from .analysis import FunctionAnalysisMixin
 from .canalization import FunctionCanalizationMixin
-from .collective_canalization import BooleanFunctionCollectiveCanalizationMixin
-from .conversions import BooleanFunctionConversionsMixin
-from .interoperability import BooleanFunctionInteroperabilityMixin
+from .collective_canalization import FunctionCollectiveCanalizationMixin
+from .conversions import FunctionConversionsMixin
+from .interoperability import FunctionInteroperabilityMixin
 from .parsing import f_from_expression
 
 
 class Function(
-        BooleanFunctionAnalysisMixin,
+        FunctionAnalysisMixin,
         FunctionCanalizationMixin,
-        BooleanFunctionCollectiveCanalizationMixin,
-        BooleanFunctionConversionsMixin,
-        BooleanFunctionInteroperabilityMixin,
+        FunctionCollectiveCanalizationMixin,
+        FunctionConversionsMixin,
+        FunctionInteroperabilityMixin,
         ):
     """
     A finite-state discrete function.
@@ -130,7 +130,7 @@ class Function(
         else:
             raw_inputs = np.asarray(r_inputs)
             if (raw_inputs.ndim != 1
-                    or raw_inputs.dtype.kind not in "iu"
+                    or (raw_inputs.size > 0 and raw_inputs.dtype.kind not in "iu")
                     or np.any(raw_inputs < 2)
                     or np.any(raw_inputs > 255)):
                 raise ValueError(
@@ -138,16 +138,13 @@ class Function(
                 )
             self.r_inputs = raw_inputs.astype(int, copy=False)
 
-        # Identify Boolean functions.
-        self.is_boolean = (
-            self.r == 2
-            and (self.r_inputs is None or np.all(self.r_inputs == 2))
-        )
-
         if isinstance(f, str):
-            if not self.is_boolean:
+            if self.r != 2 or (
+                self.r_inputs is not None
+                and not np.all(self.r_inputs == 2)
+            ):
                 raise NotImplementedError(
-                    "Expression parsing is only supported for Boolean functions"
+                    "Expression parsing is only supported for Boolean functions."
                 )
 
             f, self.variables = f_from_expression(f)
@@ -195,6 +192,11 @@ class Function(
                     raise ValueError(
                         f"variables must be a 1D sequence of length {self.n}"
                     )
+
+        # Identify Boolean functions.
+        self.is_boolean = bool(
+            self.r == 2 and np.all(self.r_inputs == 2)
+        )
 
         # Validate truth table before converting to uint8.
         raw_f = np.asarray(f)
@@ -271,301 +273,276 @@ class Function(
     ## Magic methods:
     
     def __str__(self):
-        """
-        Return a human-readable string representation of the Boolean function.
-    
-        This method returns the underlying truth table as a NumPy array.
-        """
-        return f"{self.f}"
-    
+        """Return the truth table as a human-readable string."""
+        return str(self.f)
+
     def __repr__(self):
         """
-        Return an unambiguous string representation of the BooleanFunction.
-    
-        For small functions (``n < 5``), the full truth table is shown.
-        For larger functions, only the number of inputs is displayed to
-        avoid excessive output.
+        Return a concise representation of the function.
+
+        For small truth tables, show the complete table.
+        For larger functions, show the number of inputs and cardinalities.
         """
         name = f"name='{self.name}', " if self.name else ""
-        
-        if self.n < 5:
+
+        if len(self.f) <= 32:
             return f"{type(self).__name__}({name}f={self.f.tolist()})"
-        else:
-            return f"{type(self).__name__}({name}n={self.n}, bias={self.bias:.3f})"
-    
+
+        return (
+            f"{type(self).__name__}("
+            f"{name}n={self.n}, r={self.r}, "
+            f"r_inputs={self.r_inputs.tolist()})"
+        )
+
     def __len__(self):
-        return 2**self.n
+        """Return the number of entries in the truth table."""
+        return len(self.f)
 
     def __getitem__(self, index):
-        try:
-            return int(self.f[index])
-        except TypeError:
-            return self.f[index]
+        """Return one or more truth table entries."""
+        value = self.f[index]
+        return int(value) if np.isscalar(value) else value
 
     def __setitem__(self, index, value):
-        self.f[index] = value
-    
-    def __mul__(self, value):
         """
-        Element-wise Boolean multiplication (logical AND).
+        Modify truth table entries and invalidate cached properties.
+
+        Assigned values must be integers in {0, ..., r-1}.
+        Supports scalar, slice, and array indexing.
+        """
+        values = np.asarray(value)
+
+        if (values.dtype.kind not in "biu"
+                or np.any(values < 0)
+                or np.any(values >= self.r)):
+            raise ValueError(
+                f"Assigned values must be integers from 0 to {self.r - 1}."
+            )
+
+        self.f[index] = values
+        self.properties.clear()
     
-        This method implements logical AND between Boolean functions or between
-        a Boolean function and a scalar value in ``{0,1}``.
-    
+    def _binary_boolean_operation(self, value, operation):
+        """
+        Apply an element-wise Boolean operation.
+
+        Supports another Boolean function with the same number of inputs,
+        or a scalar in {0, 1}. Function inputs are combined positionally,
+        regardless of variable names.
+
         Parameters
         ----------
-        value : BooleanFunction or int
-            BooleanFunction of the same size or an integer value (0 or 1).
-    
+        value : Function | int
+            Boolean function or scalar operand.
+        operation : callable
+            Binary operation applied to the truth tables.
+
         Returns
         -------
-        BooleanFunction
-            Result of element-wise Boolean multiplication.
+        Function
+            Result of the operation, preserving the class and metadata
+            of the left operand.
         """
-        if isinstance(value, int):
-            if value not in (0, 1):
-                raise ValueError("Integer multiplier must be 0 or 1.")
-            return self.__class__(self.f * value)
-        elif isinstance(value, BooleanFunction):
-            return self.__class__(self.f * value.f)
-        else:
-            raise TypeError(
-                f"Unsupported operand type(s) for *: "
-                f"'BooleanFunction' and '{type(value).__name__}'"
+        if not self.is_boolean:
+            raise NotImplementedError(
+                "This operation is only implemented for Boolean functions."
             )
+
+        if isinstance(value, (int, np.integer)):
+            if value not in (0, 1):
+                raise ValueError("Scalar operand must be 0 or 1.")
+            other = value
+
+        elif isinstance(value, Function):
+            if not value.is_boolean:
+                raise ValueError("Both functions must be Boolean.")
+            if self.n != value.n:
+                raise ValueError("Functions must have the same number of inputs.")
+            other = value.f
+
+        else:
+            return NotImplemented
+
+        result = operation(self.f, other)
+
+        return self.__class__._from_f_unchecked(
+            result,
+            variables=self.variables,
+            name=self.name,
+        )
+
+
+    def __mul__(self, value):
+        """Element-wise Boolean multiplication (logical AND)."""
+        return self._binary_boolean_operation(value, np.multiply)
 
 
     def __rmul__(self, value):
-        """
-        Right-hand element-wise Boolean multiplication (logical AND).
-    
-        This method enables expressions of the form ``value * BooleanFunction``
-        where ``value`` is an integer in ``{0,1}``.
-    
-        Parameters
-        ----------
-        value : int
-            Integer value (0 or 1).
-    
-        Returns
-        -------
-        BooleanFunction
-            Result of element-wise Boolean multiplication.
-        """
+        """Right-hand Boolean multiplication."""
         return self.__mul__(value)
 
-    
+
     def __and__(self, value):
-        """
-        Element-wise logical AND.
-    
-        This method implements element-wise logical AND between Boolean
-        functions or between a Boolean function and a scalar value in ``{0,1}``.
-    
-        Parameters
-        ----------
-        value : BooleanFunction or int
-            BooleanFunction of the same size or an integer value (0 or 1).
-    
-        Returns
-        -------
-        BooleanFunction
-            Result of element-wise logical AND.
-        """
-        if isinstance(value, int):
-            if value not in (0, 1):
-                raise ValueError("Integer must be 0 or 1.")
-            return self.__class__(self.f & value)
-        elif isinstance(value, BooleanFunction):
-            return self.__class__(self.f & value.f)
-        else:
-            raise TypeError(
-                f"Unsupported operand type(s) for &: "
-                f"'BooleanFunction' and '{type(value).__name__}'"
-            )
+        """Element-wise Boolean AND."""
+        return self._binary_boolean_operation(value, np.bitwise_and)
+
 
     def __or__(self, value):
-        """
-        Element-wise logical OR.
-    
-        This method implements element-wise logical OR between Boolean
-        functions or between a Boolean function and a scalar value in ``{0,1}``.
-    
-        Parameters
-        ----------
-        value : BooleanFunction or int
-            BooleanFunction of the same size or an integer value (0 or 1).
-    
-        Returns
-        -------
-        BooleanFunction
-            Result of element-wise logical OR.
-        """
-        if isinstance(value, int):
-            if value not in (0, 1):
-                raise ValueError("Integer must be 0 or 1.")
-            return self.__class__(self.f | value)
-        elif isinstance(value, BooleanFunction):
-            return self.__class__(self.f | value.f)
-        else:
-            raise TypeError(
-                f"Unsupported operand type(s) for |: "
-                f"'BooleanFunction' and '{type(value).__name__}'"
-            )
-    
-    
+        """Element-wise Boolean OR."""
+        return self._binary_boolean_operation(value, np.bitwise_or)
+
+
     def __xor__(self, value):
-        """
-        Element-wise logical XOR.
-    
-        This method implements element-wise logical XOR between Boolean
-        functions or between a Boolean function and a scalar value in ``{0,1}``.
-    
-        Parameters
-        ----------
-        value : BooleanFunction or int
-            BooleanFunction of the same size or an integer value (0 or 1).
-    
-        Returns
-        -------
-        BooleanFunction
-            Result of element-wise logical XOR.
-        """
-        if isinstance(value, int):
-            if value not in (0, 1):
-                raise ValueError("Integer must be 0 or 1.")
-            return self.__class__(self.f ^ value)
-        elif isinstance(value, BooleanFunction):
-            return self.__class__(self.f ^ value.f)
-        else:
-            raise TypeError(
-                f"Unsupported operand type(s) for ^: "
-                f"'BooleanFunction' and '{type(value).__name__}'"
-            )
+        """Element-wise Boolean XOR."""
+        return self._binary_boolean_operation(value, np.bitwise_xor)
 
 
     def __invert__(self):
         """
-        Element-wise logical negation.
-    
-        This method computes the logical NOT of the Boolean function by
-        flipping all truth table entries.
-    
-        Returns
-        -------
-        BooleanFunction
-            Result of element-wise logical negation.
+        Element-wise Boolean negation.
+
+        Returns a new function with all truth table entries flipped.
         """
-        return self.__class__(1 - self.f)
+        if not self.is_boolean:
+            raise NotImplementedError(
+                "Negation is only implemented for Boolean functions."
+            )
+
+        return self.__class__._from_f_unchecked(
+            1 - self.f,
+            variables=self.variables,
+            name=self.name,
+        )
+
     
-    
-    def __call__(self, values: list[int] | tuple[int, ...] | np.ndarray):
+    def __call__(
+            self,
+            values: Sequence[int] | np.ndarray,
+            *,
+            validate: bool = True,
+    ) -> int:
         """
-        Evaluate the Boolean function on a given input vector.
-    
-        This method makes BooleanFunction instances callable and returns the
-        output value for a specified binary input configuration.
-    
+        Evaluate the function at a given input state.
+
         Parameters
         ----------
-        values : list[int] | tuple[int, ...] | np.ndarray
-            Sequence of binary values (0 or 1) of length ``n``, where ``n`` is
-            the number of input variables of the Boolean function.
-    
+        values : Sequence[int] | np.ndarray
+            Input state of length n, with each entry in
+            {0, ..., r_inputs[i]-1}.
+        validate : bool, optional
+            Whether to validate input length, type, and state ranges.
+            Default is True. Set to False for performance-critical
+            internal computations with guaranteed valid inputs.
+
         Returns
         -------
         int
-            Output value of the Boolean function (0 or 1) for the specified input.
-    
+            Function output in {0, ..., r-1}.
+
         Raises
         ------
         ValueError
-            If the input length does not match ``n`` or if non-binary values are
-            provided.
-    
-        Examples
-        --------
-        >>> f = BooleanFunction("x1 | (x2 & x3)")
-        >>> f([1, 0, 1])
-        1
-        >>> f([0, 1, 0])
-        0
+            If validate=True and the input is invalid.
         """
-        if not len(values) == self.n:
-            raise ValueError(f"The argument must be of length {self.n}.")
-        if not set(values) <= {0, 1}:
-            raise ValueError("Binary values required.")
-        return self.f[utils.bin2dec(values)].item()
+        if validate:
+            values = np.asarray(values)
+
+            if values.ndim != 1 or len(values) != self.n:
+                raise ValueError(
+                    f"Input must be a 1D sequence of length {self.n}."
+                )
+
+            if ((values.size > 0 and values.dtype.kind not in "biu")
+                    or np.any(values < 0)
+                    or np.any(values >= self.r_inputs)):
+                raise ValueError(
+                    "Input states are outside their allowed ranges."
+                )
+
+        if self.is_boolean:
+            return int(self.f[utils.bin2dec(values)])
+
+        return int(self.f[utils_multistate.mix2dec(values, self.r_inputs)])
 
     
     def summary(self, compute_all: bool = False, *, as_dict: bool = False):
         """
-        Return a concise summary of the Boolean function.
-    
-        The summary includes basic structural and statistical properties of the
-        Boolean function and, optionally, additional properties that may require
-        nontrivial computation.
-    
+        Return a concise summary of the function.
+
+        The summary includes basic structural properties and any previously
+        computed properties. If compute_all=True, additional properties
+        are computed, where supported.
+
         Parameters
         ----------
         compute_all : bool, optional
-            If ``True``, additional properties are computed and included in the
-            summary. These computations may be expensive. If ``False`` (default),
-            only already available properties are included.
+            If True, compute additional properties that may be expensive.
+            Default is False.
         as_dict : bool, optional
-            If ``True``, return the summary as a dictionary. If ``False`` (default),
-            return a formatted string.
-    
+            If True, return a dictionary instead of a formatted string.
+
         Returns
         -------
         str or dict
-            Summary of the Boolean function, either as a formatted string or as
-            a dictionary depending on the value of ``as_dict``.
+            Summary of the function.
         """
-    
-        core_summary = {
+        summary = {
             "Number of variables": self.n,
-            "Hamming Weight": self.hamming_weight,
-            "Bias": self.bias,
-            "Absolute bias": self.absolute_bias,
             "Variables": self.variables.tolist(),
         }
-        
-        special_formatting = {
-            "Absolute bias" : ".3f",
-            "Bias" : ".3f",
-            "Average sensitivity" : ".3f"
-        }
-        
-        summary = core_summary.copy()
-    
+
+        if self.is_boolean:
+            summary.update({
+                "Hamming Weight": self.hamming_weight,
+                "Bias": self.bias,
+                "Absolute bias": self.absolute_bias,
+            })
+        else:
+            summary.update({
+                "Output cardinality": self.r,
+                "Input cardinalities": self.r_inputs.tolist(),
+            })
+
         if compute_all:
+            if not self.is_boolean:
+                raise NotImplementedError(
+                    "Full summary is not yet implemented for multistate functions."
+                )
+
             activities = self.get_activities()
-            avg_sensitivity = self.get_average_sensitivity()
-            summary['Activities'] = [f"{x:.3f}" for x in activities]
-            summary['Average sensitivity'] = avg_sensitivity
-            
-            self.get_type_of_inputs()            
+            summary["Activities"] = [f"{x:.3f}" for x in activities]
+            summary["Average sensitivity"] = self.get_average_sensitivity()
+
+            self.get_type_of_inputs()
             self.get_layer_structure()
-    
+
         summary.update(self.properties)
-    
+
         if as_dict:
             return summary
-    
-        title = "BooleanFunction"
+
+        title = type(self).__name__
         if self.name:
             title += f" ({self.name})"
-            
+
         lines = [title, "-" * len(title)]
-        
+
+        special_formatting = {
+            "Absolute bias": ".3f",
+            "Bias": ".3f",
+            "Average sensitivity": ".3f",
+        }
+
         for key, value in summary.items():
-            if key not in special_formatting:
-                lines.append(f"{key+':':27}{value}")
-            else:
-                lines.append(f"{key+':':27}{value:{special_formatting[key]}}")
-        
+            if key in special_formatting and isinstance(
+                value, (int, float, np.number)
+            ):
+                value = format(value, special_formatting[key])
+
+            lines.append(f"{key + ':':27}{value}")
+
         return "\n".join(lines)
+
 
 class BooleanFunction(Function):
     """
@@ -577,4 +554,11 @@ class BooleanFunction(Function):
     Inherits all methods and attributes from :class:`Function`.
     """
 
-    pass
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if not self.is_boolean:
+            raise ValueError(
+                "BooleanFunction requires all input and output "
+                "cardinalities to equal 2."
+            )

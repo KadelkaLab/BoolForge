@@ -8,341 +8,277 @@ import warnings
 
 from .. import utils
 
-class BooleanFunctionCollectiveCanalizationMixin:
+
+import itertools
+import math
+import warnings
+
+import numpy as np
+
+class FunctionCollectiveCanalizationMixin:
+    def _get_kset_canalizing_counts(self, k: int):
+        """
+        Count canalizing assignments to subsets of k variables.
+
+        Returns
+        -------
+        int
+            Total number of canalizing assignments.
+        int
+            Total number of assignments tested.
+        np.ndarray
+            Number of canalizing assignments containing each variable.
+        np.ndarray
+            Total number of assignments containing each variable.
+        """
+        if type(k) is not int or not 0 <= k <= self.n:
+            raise ValueError(
+                "k must be an integer satisfying 0 <= k <= n."
+            )
+
+        hits = 0
+        total = 0
+        hits_per_variable = np.zeros(self.n, dtype=np.int64)
+        total_per_variable = np.zeros(self.n, dtype=np.int64)
+
+        if k == 0:
+            return int(self.constant), 1, hits_per_variable, total_per_variable
+
+        table = self.f.reshape(tuple(self.r_inputs))
+
+        for subset in itertools.combinations(range(self.n), k):
+            # Move selected variables to the first k axes.
+            remaining = tuple(i for i in range(self.n) if i not in subset)
+            axes = subset + remaining
+
+            # Each row represents one assignment to the k variables.
+            restricted = table.transpose(axes).reshape(
+                math.prod(int(self.r_inputs[i]) for i in subset),
+                -1
+            )
+
+            canalizing = np.all(
+                restricted == restricted[:, :1],
+                axis=1
+            )
+
+            count = int(np.count_nonzero(canalizing))
+            n_assignments = len(canalizing)
+
+            hits += count
+            total += n_assignments
+
+            hits_per_variable[list(subset)] += count
+            total_per_variable[list(subset)] += n_assignments
+
+        return hits, total, hits_per_variable, total_per_variable
+
     def is_kset_canalizing(self, k: int) -> bool:
         """
-        Determine whether the Boolean function is k-set canalizing.
-    
-        A Boolean function is k-set canalizing if there exists a set of ``k``
-        variables such that fixing these variables to specific values forces
-        the output of the function, regardless of the remaining ``n - k``
-        variables.
-    
-        Parameters
-        ----------
-        k : int
-            Size of the variable set, with ``0 <= k <= n``.
-    
-        Returns
-        -------
-        bool
-            ``True`` if the Boolean function is k-set canalizing, ``False`` otherwise.
-    
-        Notes
-        -----
-        This method has exponential time complexity in ``n`` and is intended for
-        small Boolean functions.
-    
-        References
-        ----------
-        Kadelka, C., Keilty, B., & Laubenbacher, R. (2023).
-            Collectively canalizing Boolean functions.
-            *Advances in Applied Mathematics*, 145, 102475.
+        Determine whether some assignment to k input variables
+        forces a constant output.
         """
-        return self.get_kset_canalizing_proportion(k) > 0
+        hits, _, _, _ = self._get_kset_canalizing_counts(k)
+        return hits > 0
 
-
-    def get_kset_canalizing_proportion(self, k : int) -> float:
+    def get_kset_canalizing_proportion(self, k: int) -> float:
         """
-        Compute the proportion of k-set canalizing input sets.
-    
-        For a given ``k``, this method computes the probability that a randomly
-        chosen set of ``k`` variables canalizes the function, i.e., fixing those
-        variables to some values forces the output regardless of the remaining
-        variables.
-    
-        Parameters
-        ----------
-        k : int
-            Size of the variable set, with ``0 <= k <= n``.
-    
-        Returns
-        -------
-        float
-            Proportion of k-set canalizing input sets.
-            
-        Notes
-        -----
-        This method has exponential time complexity in ``n`` and is intended for
-        small Boolean functions.
-    
-        References
-        ----------
-        Kadelka, C., Keilty, B., & Laubenbacher, R. (2023).
-            Collectively canalizing Boolean functions.
-            *Advances in Applied Mathematics*, 145, 102475.
+        Return the proportion of assignments to k-variable
+        subsets that force a constant output.
         """
-        if not (type(k)==int and 0<=k<=self.n):
-            raise ValueError("k must be an integer and satisfy 0 <= k <= degree n")
-        
-        # trivial case
-        if k == 0:
-            return float(self.is_constant())
-        
-        # precompute binary representation of all inputs
-        #indices = np.arange(2**self.n, dtype=np.uint32)
-        #bits = ((indices[:, None] >> np.arange(self.n)) & 1).astype(np.uint8)  # shape (2**n, n)
-        left_side_of_truth_table = utils.get_left_side_of_truth_table(self.n)
-        
-        total_tests = 0
-        canalizing_hits = 0
-    
-        # iterate over variable subsets of size k
-        for subset in itertools.combinations(range(self.n), k):
-            Xsub = left_side_of_truth_table[:, subset]  # shape (2**n, k)
-            # For each possible assignment to this subset
-            for assignment in itertools.product([0, 1], repeat=k):
-                mask = np.all(Xsub == assignment, axis=1)
-                if not np.any(mask):
-                    continue
-                # If all outputs equal when these vars are fixed → canalizing
-                f_sub = self.f[mask]
-                if np.all(f_sub == f_sub[0]):
-                    canalizing_hits += 1
-                total_tests += 1
-    
-        return canalizing_hits / total_tests if total_tests > 0 else 0.0
+        hits, total, _, _ = self._get_kset_canalizing_counts(k)
+        return hits / total
 
-
-    def get_kset_canalizing_proportion_of_variables(self, k : int) -> float:
+    def get_kset_canalizing_proportion_of_variables(
+            self, k: int
+    ) -> np.ndarray:
         """
-        Compute the proportion of k-set canalizing input sets per variable.
-    
-        For a given ``k``, this method computes, for each variable, the proportion
-        of k-variable input sets containing that variable which canalize the
-        Boolean function.
-    
-        Parameters
-        ----------
-        k : int
-            Size of the variable set, with ``0 <= k <= n``.
-    
-        Returns
-        -------
-        np.ndarray
-            Array of length ``n`` giving the proportion of k-set canalizing input
-            sets containing each variable.
-            
-        Notes
-        -----
-        This method has exponential time complexity in ``n`` and is intended for
-        small Boolean functions.
-    
-        References
-        ----------
-        Kadelka, C., Keilty, B., & Laubenbacher, R. (2023).
-            Collectively canalizing Boolean functions.
-            *Advances in Applied Mathematics*, 145, 102475.
+        Return the proportion of canalizing assignments to
+        k-variable subsets containing each variable.
         """
-        if not (type(k)==int and 0<=k<=self.n):
-            raise ValueError("k must be an integer and satisfy 0 <= k <= degree n")
-        
-        # trivial case
-        if k == 0:
-            return float(self.is_constant())
-        
-        # precompute binary representation of all inputs
-        #indices = np.arange(2**self.n, dtype=np.uint32)
-        #bits = ((indices[:, None] >> np.arange(self.n)) & 1).astype(np.uint8)  # shape (2**n, n)
-        left_side_of_truth_table = utils.get_left_side_of_truth_table(self.n)
-        
-        canalizing_hits = np.zeros(self.n,dtype=np.float64)
-        
-        # iterate over variable subsets of size k
-        for subset in itertools.combinations(range(self.n), k):
-            Xsub = left_side_of_truth_table[:, subset]  # shape (2**n, k)
-            subset = np.array(subset)
-            # For each possible assignment to this subset
-            for assignment in itertools.product([0, 1], repeat=k):
-                mask = np.all(Xsub == assignment, axis=1)
-                if not np.any(mask):
-                    continue
-                # If all outputs equal when these vars are fixed → canalizing
-                f_sub = self.f[mask]
-                if np.all(f_sub == f_sub[0]):
-                    canalizing_hits[subset] += 1
-    
-        return canalizing_hits / (k/self.n * math.comb(self.n,k) * 2**k)
+        _, _, hits, total = self._get_kset_canalizing_counts(k)
 
+        return np.divide(
+            hits,
+            total,
+            out=np.zeros(self.n, dtype=float),
+            where=total > 0,
+        )
 
-    def get_canalizing_strength(self) -> tuple:
+    def get_canalizing_strength(self) -> float:
         """
-        Compute the canalizing strength of the Boolean function.
-    
-        The canalizing strength is defined as a weighted average of the proportions
-        of k-set canalizing inputs for ``k = 1, ..., n-1``. It equals 0 for minimally
-        canalizing functions (e.g., parity functions) and 1 for maximally canalizing
-        functions (e.g., nested canalizing functions with a single layer).
-    
-        Returns
-        -------
-        float
-            Canalizing strength of the Boolean function.
+        Compute Boolean canalizing strength.
 
-        Notes
-        -----
-        This method has exponential time complexity in ``n`` and is intended for
-        small Boolean functions.
-
-        References
-        ----------
-        Kadelka, C., Keilty, B., & Laubenbacher, R. (2023).
-            Collectively canalizing Boolean functions.
-            *Advances in Applied Mathematics*, 145, 102475.
+        Multistate normalization is not yet implemented.
         """
+        if not self.is_boolean:
+            raise NotImplementedError(
+                "Canalizing strength normalization for multistate "
+                "functions is not yet implemented."
+            )
 
-        if self.n==1:
+        if self.n == 1:
             warnings.warn(
-                "Canalizing strength is only defined for Boolean functions with n > 1 inputs. "
+                "Canalizing strength is only defined for n > 1. "
                 "Returning 1 for n == 1.",
-                RuntimeWarning
+                RuntimeWarning,
             )
             return 1.0
-        res = []
-        for k in range(1, self.n):
-            res.append(self.get_kset_canalizing_proportion(k))
-        return float(np.mean(np.multiply(res, 2**np.arange(1, self.n) / (2**np.arange(1, self.n) - 1))))
 
+        if self.n == 0:
+            raise ValueError(
+                "Canalizing strength is undefined for n == 0."
+            )
+
+        proportions = np.array([
+            self.get_kset_canalizing_proportion(k)
+            for k in range(1, self.n)
+        ])
+
+        k = np.arange(1, self.n)
+        weights = 2.0**k / (2.0**k - 1)
+
+        return float(np.mean(proportions * weights))
 
     def get_canalizing_strength_of_variables(self) -> np.ndarray:
         """
-        Compute the canalizing strength of each variable.
-    
-        The canalizing strength of a variable is defined as a weighted average of
-        the proportions of k-set canalizing inputs containing that variable for
-        ``k = 1, ..., n-1``.
-    
-        Notes
-        -----
-        This method has exponential time complexity in ``n`` and is intended for
-        small Boolean functions.
+        Compute Boolean canalizing strength for each variable.
 
-        Returns
-        -------
-        np.ndarray
-            Array of length ``n`` containing the canalizing strength of each
-            variable.
+        Multistate normalization is not yet implemented.
         """
-        if self.n==1:
-            warnings.warn(
-                "Canalizing strength is only defined for Boolean functions with n > 1 inputs. "
-                "Returning 1 for n == 1.",
-                RuntimeWarning
+        if not self.is_boolean:
+            raise NotImplementedError(
+                "Variable-specific canalizing strength for "
+                "multistate functions is not yet implemented."
             )
-            return np.ones(1,dtype=np.float64)
-        res = np.zeros((self.n-1,self.n))
-        for k in range(1, self.n):
-            res[k-1] = self.get_kset_canalizing_proportion_of_variables(k)
-        multipliers = 2**np.arange(1, self.n) / (2**np.arange(1, self.n) - 1)
-        return np.mean(res * multipliers[:, np.newaxis], axis = 0)
-        
-    def get_input_redundancy(self) -> float:
-        """
-        Compute the input redundancy of the Boolean function.
-    
-        Input redundancy quantifies the fraction of inputs that are not required
-        to determine the output. Constant functions have redundancy 1, whereas
-        parity functions have redundancy 0.
-    
-        Returns
-        -------
-        float
-            Normalized input redundancy in the interval ``[0, 1]``.
-    
-        Raises
-        ------
-        ImportError
-            If the CANA package is not installed.
-    
-        Notes
-        -----
-        This method has exponential time complexity in ``n`` and is intended for
-        small Boolean functions.
 
-        References
-        ----------
-        Marques-Pita, M., & Rocha, L. M. (2013).
-            Canalization and control in automata networks: body segmentation in
-            *Drosophila melanogaster*. *PLoS One*, 8(3), e55946.
-    
-        Correia, R. B., Gates, A. J., Wang, X., & Rocha, L. M. (2018).
-            CANA: a python package for quantifying control and canalization in
-            Boolean networks. *Frontiers in Physiology*, 9, 1046.
-        """
-        utils._require_cana()
-        return self.to_cana().input_redundancy()
-        
-    def get_edge_effectiveness(self) -> list[float]:
-        """
-        Compute the edge effectiveness of each input variable.
-    
-        Edge effectiveness measures how strongly flipping an input variable
-        influences the output. Non-essential inputs have effectiveness 0, whereas
-        inputs that always flip the output have effectiveness 1.
-    
-        Returns
-        -------
-        list[float]
-            List of length ``n`` containing edge effectiveness values in
-            ``[0, 1]``.
-    
-        Raises
-        ------
-        ImportError
-            If the CANA package is not installed.
+        if self.n == 1:
+            warnings.warn(
+                "Canalizing strength is only defined for n > 1. "
+                "Returning 1 for n == 1.",
+                RuntimeWarning,
+            )
+            return np.ones(1, dtype=float)
 
-        Notes
-        -----
-        This method has exponential time complexity in ``n`` and is intended for
-        small Boolean functions.
-    
-        References
-        ----------
-        Marques-Pita, M., & Rocha, L. M. (2013).
-            Canalization and control in automata networks: body segmentation in
-            *Drosophila melanogaster*. *PLoS One*, 8(3), e55946.
-    
-        Correia, R. B., Gates, A. J., Wang, X., & Rocha, L. M. (2018).
-            CANA: a python package for quantifying control and canalization in
-            Boolean networks. *Frontiers in Physiology*, 9, 1046.
-        """
-        utils._require_cana()
-        return self.to_cana().edge_effectiveness()
-    
-    def get_effective_degree(self) -> float:
-        """
-        Compute the effective degree of the Boolean function.
-    
-        The effective degree is defined as the sum of the edge effectiveness
-        values of all input variables.
-    
-        Returns
-        -------
-        float
-            Effective degree of the Boolean function.
-    
-        Raises
-        ------
-        ImportError
-            If the CANA package is not installed.
+        if self.n == 0:
+            raise ValueError(
+                "Canalizing strength is undefined for n == 0."
+            )
 
-        Notes
-        -----
-        This method has exponential time complexity in ``n`` and is intended for
-        small Boolean functions.
-        
-        References
-        ----------
-        Marques-Pita, M., & Rocha, L. M. (2013).
-            Canalization and control in automata networks: body segmentation in
-            *Drosophila melanogaster*. *PLoS One*, 8(3), e55946.
-    
-        Correia, R. B., Gates, A. J., Wang, X., & Rocha, L. M. (2018).
-            CANA: a python package for quantifying control and canalization in
-            Boolean networks. *Frontiers in Physiology*, 9, 1046.
-        """
-        utils._require_cana()
-        return float(sum(self.get_edge_effectiveness()))
+        proportions = np.array([
+            self.get_kset_canalizing_proportion_of_variables(k)
+            for k in range(1, self.n)
+        ])
+
+        k = np.arange(1, self.n)
+        weights = 2.0**k / (2.0**k - 1)
+
+        return np.mean(proportions * weights[:, None], axis=0)
+
+
+def get_input_redundancy(self) -> float:
+    """
+    Compute the input redundancy of the Boolean function.
+
+    Input redundancy quantifies the fraction of inputs that are not
+    required to determine the output. Constant functions have
+    redundancy 1, whereas parity functions have redundancy 0.
+
+    Currently implemented only for Boolean functions using CANA.
+
+    Returns
+    -------
+    float
+        Normalized input redundancy in [0, 1].
+
+    Raises
+    ------
+    NotImplementedError
+        If the function is not Boolean.
+    ImportError
+        If CANA is not installed.
+
+    References
+    ----------
+    Marques-Pita, M., & Rocha, L. M. (2013).
+        Canalization and control in automata networks: body segmentation in
+        Drosophila melanogaster. PLoS One, 8(3), e55946.
+
+    Correia, R. B., Gates, A. J., Wang, X., & Rocha, L. M. (2018).
+        CANA: a python package for quantifying control and canalization
+        in Boolean networks. Frontiers in Physiology, 9, 1046.
+    """
+    if not self.is_boolean:
+        raise NotImplementedError(
+            "Input redundancy is currently implemented only "
+            "for Boolean functions."
+        )
+
+    utils._require_cana()
+    return self.to_cana().input_redundancy()
+
+
+def get_edge_effectiveness(self) -> list[float]:
+    """
+    Compute the edge effectiveness of each input variable.
+
+    Edge effectiveness quantifies the contribution of each input
+    to determining the output. Nonessential inputs have
+    effectiveness 0, while maximally effective inputs have
+    effectiveness 1.
+
+    Currently implemented only for Boolean functions using CANA.
+
+    Returns
+    -------
+    list[float]
+        Edge effectiveness of each input variable.
+
+    Raises
+    ------
+    NotImplementedError
+        If the function is not Boolean.
+    ImportError
+        If CANA is not installed.
+    """
+    if not self.is_boolean:
+        raise NotImplementedError(
+            "Edge effectiveness is currently implemented only "
+            "for Boolean functions."
+        )
+
+    utils._require_cana()
+    return self.to_cana().edge_effectiveness()
+
+
+def get_effective_degree(self) -> float:
+    """
+    Compute the effective degree of the Boolean function.
+
+    Effective degree is the sum of the edge effectiveness
+    values across all input variables.
+
+    Currently implemented only for Boolean functions using CANA.
+
+    Returns
+    -------
+    float
+        Effective degree of the function.
+
+    Raises
+    ------
+    NotImplementedError
+        If the function is not Boolean.
+    ImportError
+        If CANA is not installed.
+    """
+    if not self.is_boolean:
+        raise NotImplementedError(
+            "Effective degree is currently implemented only "
+            "for Boolean functions."
+        )
+
+    return float(sum(self.get_edge_effectiveness()))
 
 
 
