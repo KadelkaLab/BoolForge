@@ -242,7 +242,7 @@ def test_random_k_canalizing_invalid_exact_depth():
     n = 5
     k = n - 1
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         boolforge.random_k_canalizing_function(
             n=n,
             k=k,

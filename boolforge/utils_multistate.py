@@ -23,7 +23,7 @@ def _is_homogeneous(n_states, n_states_inputs):
 
 def normalize_and_validate_state_specs(
         n: int,
-        n_states: int,
+        r: int,
         n_states_inputs=None,
 ) -> tuple[int, np.ndarray, bool]:
     """
@@ -32,13 +32,13 @@ def normalize_and_validate_state_specs(
     Returns the output cardinality, input cardinalities,
     and whether all cardinalities are Boolean.
     """
-    if (isinstance(n_states, (bool, np.bool_))
-            or not isinstance(n_states, (int, np.integer))
-            or not 2 <= n_states <= 255):
-        raise ValueError("n_states must be an integer between 2 and 255.")
+    if (isinstance(r, (bool, np.bool_))
+            or not isinstance(r, (int, np.integer))
+            or not 2 <= r <= 255):
+        raise ValueError("r must be an integer between 2 and 255.")
 
     if n_states_inputs is None:
-        n_states_inputs = np.full(n, n_states, dtype=int)
+        n_states_inputs = np.full(n, r, dtype=int)
     elif isinstance(n_states_inputs, (int, np.integer)):
         n_states_inputs = np.full(n, n_states_inputs, dtype=int)
     else:
@@ -57,7 +57,7 @@ def normalize_and_validate_state_specs(
             "All input cardinalities must be between 2 and 255."
         )
 
-    n_states = int(n_states)
+    n_states = int(r)
     is_boolean = _is_boolean(n_states, n_states_inputs)
 
     return n_states, n_states_inputs, is_boolean

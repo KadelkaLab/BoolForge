@@ -85,7 +85,7 @@ class WiringDiagram(
     
     See Also
     --------
-    boolforge.BooleanNetwork
+    boolforge.Network
     """
     
     def __init__(

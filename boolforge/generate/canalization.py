@@ -32,6 +32,7 @@ def random_non_canalizing_function(
         r_inputs: Sequence[int] | None = None,
         output_bias: Sequence[float] | None = None,
         strong: bool = False,
+        constant_functions_canalizing: bool = True,
         rng=None,
 ) -> Function:
     """
@@ -58,6 +59,9 @@ def random_non_canalizing_function(
     strong : bool, optional
         If False (default), exclude all weakly canalizing
         functions. If True, exclude only strongly canalizing functions.
+    constant_functions_canalizing : bool, optional
+        Whether constant functions are considered canalizing.
+        Default is True.
     rng : optional
         Random number generator or seed specification.
 
@@ -90,7 +94,8 @@ def random_non_canalizing_function(
     # A deterministic output distribution produces only
     # constant functions, which are canalizing by convention.
     if (
-        output_bias is not None
+        constant_functions_canalizing
+        and output_bias is not None
         and np.count_nonzero(output_bias > 0) < 2
     ):
         raise ValueError(
@@ -108,7 +113,8 @@ def random_non_canalizing_function(
             output_bias=output_bias,
         )
 
-        if not candidate.is_canalizing(strong=strong):
+        if not candidate.is_canalizing(strong=strong,
+                                       constant_functions_canalizing=constant_functions_canalizing):
             return candidate
 
 
@@ -120,6 +126,7 @@ def random_non_canalizing_non_degenerate_function(
         r_inputs: Sequence[int] | None = None,
         output_bias: Sequence[float] | None = None,
         strong: bool = False,
+        constant_functions_canalizing: bool = True,
         rng=None,
 ) -> Function:
     """
@@ -146,6 +153,9 @@ def random_non_canalizing_non_degenerate_function(
     strong : bool, optional
         If False (default), exclude all weakly canalizing
         functions. If True, exclude only strongly canalizing functions.
+    constant_functions_canalizing : bool, optional
+        Whether constant functions are considered canalizing.
+        Default is True.
     rng : optional
         Random number generator or seed specification.
 
@@ -164,7 +174,7 @@ def random_non_canalizing_non_degenerate_function(
     if n < 2:
         raise ValueError("n must be at least 2")
 
-    r, r_inputs, _ = (
+    r, normalized_r_inputs, _ = (
         utils_multistate.normalize_and_validate_state_specs(
             n, r, r_inputs
         )
@@ -187,14 +197,14 @@ def random_non_canalizing_non_degenerate_function(
 
     while True:
         candidate = _sample_function_unchecked(
-            r,
-            r_inputs,
+            r=r,
+            r_inputs=normalized_r_inputs,
             rng=rng,
             output_bias=output_bias,
         )
 
         if (
-            not candidate.is_canalizing(strong=strong)
+            not candidate.is_canalizing(strong=strong, constant_functions_canalizing=constant_functions_canalizing)
             and not candidate.is_degenerate()
         ):
             return candidate
@@ -344,6 +354,7 @@ def random_k_canalizing_function(
         k: int,
         exact_depth: bool = False,
         uniform_over_functions: bool = True,
+        allow_degenerate_functions: bool = False,
         *,
         r: int = 2,
         r_inputs: Sequence[int] | None = None,
@@ -374,6 +385,9 @@ def random_k_canalizing_function(
         functions satisfying the requested constraints.
         If False, sample canalized outputs independently,
         inducing a nonuniform distribution over functions.
+    allow_degenerate_functions : bool, optional
+        If False (default), require all variables in the core 
+        to be essential.
     r : int, optional
         Number of output states. Default is 2.
         Currently only Boolean functions are supported.
@@ -449,16 +463,19 @@ def random_k_canalizing_function(
 
     if k == 0:
         if exact_depth:
-            if n == 1:
-                raise ValueError(
-                    "No Boolean functions with canalizing "
-                    "depth 0 exist for n=1."
+            if allow_degenerate_functions:
+                return random_non_canalizing_function(
+                    n, rng=rng
                 )
             return random_non_canalizing_non_degenerate_function(
                 n, rng=rng
             )
-        return random_non_degenerate_function(n, rng=rng)
 
+        if allow_degenerate_functions:
+            return random_function_with_bias(n, rng=rng)
+
+        return random_non_degenerate_function(n, rng=rng)
+    
     elif k == n - 1 and n > 1:
         # Boolean functions with depth n-1 have depth n.
         k = n
@@ -482,12 +499,20 @@ def random_k_canalizing_function(
 
         # Step 3: Sample the core function.
         if k < n:
-            core_function = random_k_canalizing_function(
-                n=n - k,
-                k=0,
-                exact_depth=exact_depth,
-                rng=rng,
-            )
+            while True:
+                core_function = random_k_canalizing_function(
+                    n=n - k,
+                    k=0,
+                    exact_depth=exact_depth,
+                    allow_degenerate_functions=allow_degenerate_functions,
+                    rng=rng,
+                )
+
+                # The last prescribed canalizing variable must remain essential.
+                # Thus a core function that is constant to this last output must
+                # be rejected.
+                if not allow_degenerate_functions or not np.all(core_function.f == bbs[-1]):
+                    break
 
             if exact_depth or k == 0 or not uniform_over_functions:
                 break
@@ -548,11 +573,13 @@ def random_k_canalizing_function(
     return BooleanFunction._from_f_unchecked(f)
 
 
+
 def random_k_canalizing_function_with_specific_layer_structure(
     n: int,
     layer_structure: list,
     exact_depth: bool = False,
     *,
+    allow_degenerate_functions: bool = False,
     r: int = 2,
     r_inputs: Sequence[int] | None = None,
     rng=None,
@@ -583,6 +610,9 @@ def random_k_canalizing_function_with_specific_layer_structure(
         If True, enforce that the canalizing depth is exactly
         ``sum(layer_structure)``. If False (default), additional canalizing
         variables may occur in the core function.
+    allow_degenerate_functions : bool, optional
+        If True, allow non-essential variables in the core function.
+        If False (default), require all variables to be essential.
     r : int, optional
         Number of output states. Default is 2.
         Currently only Boolean functions are supported.
@@ -631,7 +661,7 @@ def random_k_canalizing_function_with_specific_layer_structure(
     """
     n = _validate_n(n, allow_zero=False)
 
-    r, r_inputs, is_boolean = (
+    r, normalized_r_inputs, is_boolean = (
         utils_multistate.normalize_and_validate_state_specs(
             n, r, r_inputs
         )
@@ -664,29 +694,47 @@ def random_k_canalizing_function_with_specific_layer_structure(
     aas = rng.integers(2, size=depth)  # canalizing inputs
     b0 = rng.integers(2)
     bbs = [b0] * layer_structure[0]  # canalized outputs for first layer
+
     for i in range(1, len(layer_structure)):
         if i % 2 == 0:
             bbs.extend([b0] * layer_structure[i])
         else:
             bbs.extend([1 - b0] * layer_structure[i])
+
     can_vars = rng.choice(n, depth, replace=False)
-    f = np.zeros(size_state_space, dtype=int)
+
     if depth < n:
-        core_function = random_k_canalizing_function(
-            n=n - depth,
-            k=0,
-            exact_depth=exact_depth,
-            rng=rng,
-        )
+        while True:
+            core_function = random_k_canalizing_function(
+                n=n - depth,
+                k=0,
+                exact_depth=exact_depth,
+                allow_degenerate_functions=allow_degenerate_functions,
+                rng=rng,
+            )
+
+            # The last prescribed canalizing variable must remain essential.
+            # Reject a core function that is constant to its canalized output.
+            if (
+                not allow_degenerate_functions
+                or depth == 0
+                or np.any(core_function.f != bbs[-1])
+            ):
+                break
     else:
         core_function = [1 - bbs[-1]]
 
     left_side_of_truth_table = utils.get_left_side_of_truth_table(n)
-    f = np.full(2**n, -1, dtype=np.int8)
+    f = np.full(size_state_space, -1, dtype=np.int8)
+
     for j in range(depth):
-        mask = (left_side_of_truth_table[:, can_vars[j]] == aas[j]) & (f < 0)
+        mask = (
+            (left_side_of_truth_table[:, can_vars[j]] == aas[j])
+            & (f < 0)
+        )
         f[mask] = bbs[j]
-    # fill remaining with core truth table
+
+    # Fill remaining entries with core truth table.
     f[f < 0] = np.asarray(core_function, dtype=np.int8)
 
     return BooleanFunction._from_f_unchecked(f)
@@ -699,7 +747,7 @@ def random_NCF(
     *,
     r: int = 2,
     r_inputs: Sequence[int] | None = None,
-    rng=None
+    rng=None,
 ) -> BooleanFunction:
     """
     Generate a random nested canalizing function.
@@ -715,12 +763,13 @@ def random_NCF(
     n : int
         Total number of input variables.
     uniform_over_functions : bool, optional
-        If True (default) and ``layer_structure`` is None, canalizing layer
-        structures are sampled uniformly at random, removing the bias toward
-        symmetric structures induced by independent sampling of canalized
-        outputs. If False, canalized outputs are sampled independently and
-        uniformly as a bitstring, which biases the distribution toward more
-        symmetric layer structures.
+        If True (default) and ``layer_structure`` is None, sample uniformly
+        over nested canalizing Boolean functions. This induces a generally
+        nonuniform distribution over canalizing layer structures.
+
+        If False, canalized outputs are sampled independently and uniformly
+        as bitstrings, inducing a bias toward more symmetric structures.
+
         This parameter is ignored if ``layer_structure`` is provided.
     layer_structure : list of int or None, optional
         Canalizing layer structure ``[k_1, ..., k_r]``. Each entry must be at
@@ -756,8 +805,7 @@ def random_NCF(
     -----
     For fixed parameter values, this function samples uniformly at random
     from the ensemble of nested canalizing Boolean functions consistent with
-    the specified constraints. Non-uniformity arises only when
-    ``uniform_over_functions=False``.
+    the specified constraints, unless ``uniform_over_functions=False``.
 
     This function is a convenience wrapper around
     ``random_k_canalizing_function`` and
@@ -775,7 +823,7 @@ def random_NCF(
     """
     n = _validate_n(n, allow_zero=False)
 
-    r, r_inputs, is_boolean = (
+    r, normalized_r_inputs, is_boolean = (
         utils_multistate.normalize_and_validate_state_specs(
             n, r, r_inputs
         )
@@ -788,21 +836,27 @@ def random_NCF(
         )
 
     rng = utils._coerce_rng(rng)
+
     if layer_structure is None:
-        return random_k_canalizing_function(n, 
-                                            n, 
-                                            uniform_over_functions=uniform_over_functions,
-                                            exact_depth=False, 
-                                            rng=rng)
-    else:
-        assert sum(layer_structure) == n, "Ensure sum(layer_structure) == n."
-        assert layer_structure[-1] > 1 or n == 1, (
-            "The last layer of an NCF has to have size >= 2 whenever n > 1.\nEnsure that layer_structure[-1]>=2."
+        return random_k_canalizing_function(
+            n,
+            k=n,
+            uniform_over_functions=uniform_over_functions,
+            exact_depth=False,
+            rng=rng,
         )
-        return random_k_canalizing_function_with_specific_layer_structure(
-            n, 
-            layer_structure, 
-            exact_depth=False, 
-            rng=rng
-        )
+
+    assert sum(layer_structure) == n, "Ensure sum(layer_structure) == n."
+    assert layer_structure[-1] > 1 or n == 1, (
+        "The last layer of an NCF has to have size >= 2 whenever n > 1.\n"
+        "Ensure that layer_structure[-1]>=2."
+    )
+
+    return random_k_canalizing_function_with_specific_layer_structure(
+        n,
+        layer_structure,
+        exact_depth=False,
+        rng=rng,
+    )
+
 

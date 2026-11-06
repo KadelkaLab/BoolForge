@@ -168,8 +168,8 @@ def test_nonsegment_strong_canalizing_set():
         r_inputs=[3, 3],
     )
 
-    assert f.is_k_canalizing(1, segments_only=False)
-    assert not f.is_k_canalizing(1, segments_only=True)
+    assert f.is_k_canalizing(1, allow_any_canalizing_input_set=True)
+    assert not f.is_k_canalizing(1, allow_any_canalizing_input_set=False)
 
 
 # ------------------------------------------------------------
@@ -278,11 +278,11 @@ def test_segment_cache_is_separate():
         r_inputs=[3, 3],
     )
 
-    unrestricted = f.get_layer_structure()
-    restricted = f.get_layer_structure(segments_only=True)
+    unrestricted = f.get_layer_structure(allow_any_canalizing_input_set=True)
+    restricted = f.get_layer_structure(allow_any_canalizing_input_set=False)
 
     assert "CanalizingDepth" in f.properties
-    assert "LayerDecompositionSegments" in f.properties
+    assert "LayerDecompositionAnyInputSet" in f.properties
 
     assert unrestricted["CanalizingDepth"] >= (
         restricted["CanalizingDepth"]

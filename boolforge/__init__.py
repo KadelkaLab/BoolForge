@@ -44,7 +44,6 @@ from .utils_multistate import (
 )
 
 from .multistate_network_to_merge import (
-    MultistateFunction,
     MultistateNetwork,
 )
 from .generate_multistate_to_merge import (
@@ -83,7 +82,6 @@ __all__ = [
     "product_of_trajectories",
     "plot_trajectory",
 
-    "MultistateFunction",
     "MultistateNetwork",
     "random_MSN"
 ]

@@ -9,7 +9,8 @@ from collections.abc import Sequence
 
 from . import utils
 
-from .multistate_network_to_merge import MultistateFunction, MultistateNetwork
+from .multistate_network_to_merge import MultistateNetwork
+from .function.core import Function
 from .utils_multistate import f_from_expression
 
 def random_edge_list(
@@ -126,7 +127,7 @@ def random_non_degenerated_ms_function(
         R : Sequence[int],
         *,
         rng=None
-    ) -> MultistateFunction:
+    ) -> Function:
     """
     Generate a random non-degenerate multistate function.
     
@@ -141,7 +142,7 @@ def random_non_degenerated_ms_function(
 
     Returns
     -------
-    MultistateFunction
+    Function
         Random non-degerate multistate function.
 
     """
@@ -149,7 +150,7 @@ def random_non_degenerated_ms_function(
     while True:
         f = np.array(np.floor(rng.random(np.prod(R)) * r), int)
         #if not is_ms_degenerated(f, R):
-        return MultistateFunction(f, r, R)
+        return Function(f, r, R)
 
 def random_linear_ms_function(
         n : int,
@@ -157,10 +158,10 @@ def random_linear_ms_function(
         R : Sequence[int],
         *,
         rng=None
-    ) -> MultistateFunction:
+    ) -> Function:
     expr = '(%s) %% %i' % (' + '.join(['(%i + x%i)' % (rng.random(r), y) for y in range(n)]), r)
     f, var = f_from_expression(expr, R)[0]
-    return MultistateFunction(f, r, n, var)
+    return Function(f, r, n, var)
 
 def random_MSN(N, in_degree = 2, base = 3, STRONGLY_CONNECTED = True, in_degree_distribution = 'const',
                UNIFORM_BASE_DISTRIBUTION = False, list_x = [], NO_SELF_REGULATION = True, edges_wiring_diagram = None, LINEAR = False):

@@ -9,7 +9,7 @@ import math
 from .boolean_network.core import BooleanNetwork, WiringDiagram
 from .utils import find_all_indices, bin2dec, dec2bin, _coerce_rng
 from .utils_multistate import dec2mix, mix2dec
-from .multistate_function_to_merge.core import MultistateFunction
+from .function.core import Function
 
 from .backend._numba import __LOADED_NUMBA__
 if __LOADED_NUMBA__:
@@ -119,13 +119,13 @@ if __LOADED_NUMBA__:
 class MultistateNetwork(WiringDiagram):
     def __init__(
             self,
-            F : Sequence[MultistateFunction | list[int] | np.ndarray],
+            F : Sequence[Function | list[int] | np.ndarray],
             I : Sequence[Sequence[int]] | WiringDiagram,
             R : Sequence[int],
             variables : Sequence[str] | None = None
     ):
         if isinstance(F, (str, bytes)) or not isinstance(F, Sequence):
-            raise TypeError("F must be a sequence of MultistateFunction objects or truth tables")
+            raise TypeError("F must be a sequence of Function objects or truth tables")
         if isinstance(I, (str, bytes)) or not isinstance(I, (list, Sequence, WiringDiagram)):
             raise TypeError("I must be a sequence of sequences of int or a WiringDiagram instance")
         if isinstance(I, WiringDiagram):
@@ -143,14 +143,14 @@ class MultistateNetwork(WiringDiagram):
         self.F = []
         for i, f in enumerate(F):
             if isinstance(f, (Sequence, list, np.ndarray)):
-                msf = MultistateFunction(f, int(R[i]), len(I[i]), name=self.variables[i])
-            elif isinstance(f, MultistateFunction):
+                msf = Function(f, int(R[i]), len(I[i]), name=self.variables[i])
+            elif isinstance(f, Function):
                 msf = f
                 if msf.r != R[i]:
                     raise ValueError("Multistate Function at index {i} has radix {msf.r}, expected {R[i]}")
                 msf.name = self.variables[i]
             else:
-                raise TypeError(f"Invalid entry in F at index {i}: expected MultistateFunction, truth table, got {type(f)}")
+                raise TypeError(f"Invalid entry in F at index {i}: expected Function, truth table, got {type(f)}")
             if msf.n != self.indegrees[i]:
                 raise ValueError(f"Index {i}: function has {msf.n} inputs but wiring diagram has degree {self.indegrees[i]}")
             self.F.append(msf)

@@ -478,5 +478,3 @@ def random_degenerate_function(
 
         if rng.random() < 1.0 / k:
             return candidate
-
-            return candidate

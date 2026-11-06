@@ -15,7 +15,7 @@ class WiringDiagramInteroperabilityMixin:
         """
         Construct a WiringDiagram from a NetworkX directed graph.
     
-        Each node in the directed graph represents a Boolean variable, and each
+        Each node in the directed graph represents a variable, and each
         directed edge ``u -> v`` indicates that variable ``u`` regulates variable
         ``v``.
     

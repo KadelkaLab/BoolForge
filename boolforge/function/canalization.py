@@ -43,7 +43,7 @@ def _is_k_canalizing_recursive(
         f: np.ndarray,
         r_inputs: np.ndarray,
         k: int,
-        segments_only: bool,
+        allow_any_canalizing_input_set: bool,
 ) -> bool:
     """
     Recursively test strong k-canalization.
@@ -72,7 +72,7 @@ def _is_k_canalizing_recursive(
 
                 r_new = np.delete(r_inputs, i)
                 if _is_k_canalizing_recursive(
-                        f1.ravel(), r_new, k - 1, segments_only
+                        f=f1.ravel(), r_inputs=r_new, k=k - 1, allow_any_canalizing_input_set=allow_any_canalizing_input_set
                 ):
                     return True
 
@@ -82,7 +82,7 @@ def _is_k_canalizing_recursive(
 
                 r_new = np.delete(r_inputs, i)
                 if _is_k_canalizing_recursive(
-                        f0.ravel(), r_new, k - 1, segments_only
+                        f=f0.ravel(), r_inputs=r_new, k=k - 1, allow_any_canalizing_input_set=allow_any_canalizing_input_set
                 ):
                     return True
 
@@ -107,7 +107,7 @@ def _is_k_canalizing_recursive(
                 if not np.all(canalized == canalized.flat[0]):
                     continue
 
-                if segments_only:
+                if not allow_any_canalizing_input_set:
                     indices = np.flatnonzero(differs)
 
                     # Canalizing set must be a lower or upper segment.
@@ -121,7 +121,7 @@ def _is_k_canalizing_recursive(
                 r_new = np.delete(r_inputs, i)
 
                 if _is_k_canalizing_recursive(
-                        g.ravel(), r_new, k - 1, segments_only
+                        f=g.ravel(), r_inputs=r_new, k=k - 1, allow_any_canalizing_input_set=allow_any_canalizing_input_set
                 ):
                     return True
 
@@ -137,7 +137,7 @@ def _get_layer_structure_recursive(
         can_outputs: list[int],
         can_order: list[int],
         number_layers: int,
-        segments_only: bool = False,
+        allow_any_canalizing_input_set: bool = False,
 ):
     """
     Recursively identify and remove all strongly canalizing
@@ -186,7 +186,7 @@ def _get_layer_structure_recursive(
 
                 S = set(np.flatnonzero(differs).tolist())
 
-                if segments_only:
+                if not allow_any_canalizing_input_set:
                     indices = sorted(S)
                     if (indices != list(range(len(S)))
                             and indices != list(range(r_i - len(S), r_i))):
@@ -235,7 +235,7 @@ def _get_layer_structure_recursive(
         can_outputs,
         can_order,
         number_layers + 1,
-        segments_only,
+        allow_any_canalizing_input_set=allow_any_canalizing_input_set,
     )
 
 class FunctionCanalizationMixin:
@@ -340,12 +340,11 @@ class FunctionCanalizationMixin:
         return False
 
 
-
     def is_k_canalizing(
             self,
             k: int,
             *,
-            segments_only: bool = False,
+            allow_any_canalizing_input_set: bool = False,
     ) -> bool:
         """
         Determine whether the function is k-canalizing.
@@ -356,6 +355,11 @@ class FunctionCanalizationMixin:
         while the function outside S is independent of that variable.
         The residual function must be (k-1)-canalizing.
 
+        By default, canalizing input sets must be lower or upper
+        segments of the input state space. If
+        ``allow_any_canalizing_input_set=True``, all 2**r_i - 2 nonempty 
+        proper subsets of the state space of input variable i are permitted.
+
         Constant functions have canalizing depth zero.
 
         Parameters
@@ -363,9 +367,10 @@ class FunctionCanalizationMixin:
         k : int
             Desired canalizing depth, with 0 <= k <= n.
             Every function is trivially 0-canalizing.
-        segments_only : bool, optional
-            If True, canalizing sets must be lower or upper segments
-            of the input state space. Default is False.
+        allow_any_canalizing_input_set : bool, optional
+            If False (default), canalizing input sets must be lower
+            or upper segments. If True, arbitrary nonempty proper
+            subsets are allowed.
 
         Returns
         -------
@@ -379,13 +384,18 @@ class FunctionCanalizationMixin:
         if self.constant:
             return False
 
-        return _is_k_canalizing_recursive(self.f, self.r_inputs, k, segments_only)
+        return _is_k_canalizing_recursive(
+            self.f,
+            self.r_inputs,
+            k,
+            allow_any_canalizing_input_set=allow_any_canalizing_input_set,
+        )
 
 
     def get_layer_structure(
             self,
             *,
-            segments_only: bool = False,
+            allow_any_canalizing_input_set: bool = False,
     ) -> dict:
         """
         Determine the strong canalizing layer structure of the function.
@@ -394,11 +404,17 @@ class FunctionCanalizationMixin:
         removes them simultaneously. For multistate inputs, canalizing
         inputs are represented by sets of states.
 
+        By default, canalizing input sets must be lower or upper
+        segments of the input state space. If
+        ``allow_any_canalizing_input_set=True``, arbitrary nonempty
+        proper subsets are permitted.
+
         Parameters
         ----------
-        segments_only : bool, optional
-            If True, canalizing input sets must be lower or upper
-            segments of the input state space. Default is False.
+        allow_any_canalizing_input_set : bool, optional
+            If False (default), canalizing input sets must be lower
+            or upper segments. If True, all nonempty proper subsets
+            of each input's state space are permitted.
 
         Returns
         -------
@@ -422,27 +438,26 @@ class FunctionCanalizationMixin:
 
         Notes
         -----
-        Results are cached in ``self.properties``. The unrestricted
-        decomposition uses the existing flat cache structure, while
-        the segment-restricted decomposition is stored separately.
+        The canalizing depth and layer sizes are independent of the 
+        choice of terminal representation, but the canalizing input 
+        sets and outputs may not be unique when the core function 
+        is constant.
+        Consider for example:
+        f = bf.Function([2,2,2,0,0,0,0,0,0],r=3)
+        g = bf.Function([0,0,0,0,0,0,2,2,2],r=3)
+
+        Results are cached in ``self.properties`` under separate keys
+        for segment-restricted and unrestricted decompositions.
+        The default decomposition additionally populates the
+        traditional flat property keys for backward compatibility.
         """
-        keys = (
-            "CanalizingDepth",
-            "NumberOfLayers",
-            "CanalizingInputs",
-            "CanalizedOutputs",
-            "CoreFunction",
-            "OrderOfCanalizingVariables",
-            "LayerStructure",
-        )
+        cache_key = "LayerDecomposition"
+        if allow_any_canalizing_input_set:
+            cache_key += "AnyInputSet"
 
         # Return cached results when available.
-        if segments_only:
-            if "LayerDecompositionSegments" in self.properties:
-                return self.properties["LayerDecompositionSegments"]
-        else:
-            if "CanalizingDepth" in self.properties:
-                return {key: self.properties[key] for key in keys}
+        if cache_key in self.properties:
+            return self.properties[cache_key]
 
         # Compute the layer decomposition.
         (
@@ -461,7 +476,7 @@ class FunctionCanalizationMixin:
             [],
             [],
             0,
-            segments_only,
+            allow_any_canalizing_input_set=allow_any_canalizing_input_set,
         )
 
         # Construct the remaining core function.
@@ -490,44 +505,41 @@ class FunctionCanalizationMixin:
         }
 
         # Cache the result.
-        if segments_only:
-            self.properties["LayerDecompositionSegments"] = result
-        else:
+        self.properties[cache_key] = result
+
+        if not allow_any_canalizing_input_set:
             self.properties.update(result)
 
         return result
 
 
+
     def get_canalizing_depth(
             self,
             *,
-            segments_only: bool = False,
+            allow_any_canalizing_input_set: bool = False,
     ) -> int:
         """
-        Return the (strong) canalizing depth of the function.
+        Return the strong canalizing depth of the function.
 
         The canalizing depth is the total number of variables identified
-        in the (strong)canalizing layer decomposition.
+        in the strong canalizing layer decomposition.
+
+        By default, canalizing input sets must be lower or upper
+        segments of the input state space.
 
         Parameters
         ----------
-        segments_only : bool, optional
-            If True, restrict canalizing input sets to segments.
-            Default is False.
+        allow_any_canalizing_input_set : bool, optional
+            If False (default), restrict canalizing input sets to
+            lower or upper segments. If True, permit arbitrary
+            nonempty proper subsets.
 
         Returns
         -------
         int
             Canalizing depth of the function.
         """
-        if segments_only:
-            return self.get_layer_structure(
-                segments_only=True
-            )["CanalizingDepth"]
-
-        if "CanalizingDepth" not in self.properties:
-            self.get_layer_structure()
-
-        return self.properties["CanalizingDepth"]
-
-
+        return self.get_layer_structure(
+            allow_any_canalizing_input_set=allow_any_canalizing_input_set
+        )["CanalizingDepth"]
